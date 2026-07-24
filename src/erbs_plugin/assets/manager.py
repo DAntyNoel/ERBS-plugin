@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from base64 import b64decode
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,12 @@ class AssetEntry:
     size: int
     downloaded_at: str
     version: str = "unknown"
+    placeholder: bool = False
+
+
+PLACEHOLDER_PNG = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 class AssetManager:
@@ -86,14 +93,26 @@ class AssetManager:
                 suffix = Path(parsed.path).suffix or ".bin"
                 relative = Path(key.replace(":", "/")).with_suffix(suffix)
                 destination = self.directory / relative
-                if not force and key in entries and destination.is_file():
+                if not force and destination.is_file():
+                    if key not in entries:
+                        entries[key] = AssetEntry(
+                            key=key,
+                            path=relative.as_posix(),
+                            source=normalized_url,
+                            sha256=self._sha256(destination),
+                            size=destination.stat().st_size,
+                            downloaded_at=datetime.now(UTC).isoformat(),
+                            version=version,
+                        )
                     return
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 async with semaphore:
                     response = await client.get(normalized_url)
-                    response.raise_for_status()
+                    if response.status_code not in {403, 404}:
+                        response.raise_for_status()
+                placeholder = response.status_code in {403, 404}
                 temporary = destination.with_suffix(destination.suffix + ".tmp")
-                temporary.write_bytes(response.content)
+                temporary.write_bytes(PLACEHOLDER_PNG if placeholder else response.content)
                 temporary.replace(destination)
                 entries[key] = AssetEntry(
                     key=key,
@@ -103,6 +122,7 @@ class AssetManager:
                     size=destination.stat().st_size,
                     downloaded_at=datetime.now(UTC).isoformat(),
                     version=version,
+                    placeholder=placeholder,
                 )
 
             import asyncio

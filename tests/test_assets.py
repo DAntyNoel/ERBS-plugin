@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 
+import httpx
+import pytest
+
 from erbs_plugin.assets.manager import AssetEntry, AssetManager
 
 
@@ -25,3 +28,21 @@ def test_manifest_check_and_prune(tmp_path) -> None:
     assert manager.check() == []
     assert manager.prune(set()) == [entry.key]
     assert not image.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_uses_placeholder_for_unavailable_asset(tmp_path, monkeypatch) -> None:
+    async def fake_get(self, url):
+        request = httpx.Request("GET", str(url))
+        return httpx.Response(403, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    manager = AssetManager(tmp_path)
+    entries = await manager.download(
+        {"skills:missing": "https://cdn.example.invalid/missing.png"}, version="test"
+    )
+
+    entry = entries["skills:missing"]
+    assert entry.placeholder is True
+    assert (tmp_path / entry.path).is_file()
+    assert manager.check() == []
