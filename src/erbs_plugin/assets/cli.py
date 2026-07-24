@@ -54,17 +54,6 @@ async def discover_assets(config: ERBSConfig) -> tuple[dict[str, str], str]:
                     if marker in url:
                         version = url.split(marker, 1)[1].split("/", 1)[0]
                         break
-        characters = await client.metadata("characters")
-        character_ids = [
-            int(character["id"])
-            for character in characters.get("characters", ())
-            if isinstance(character, Mapping) and character.get("id") is not None
-        ]
-        details = await asyncio.gather(
-            *(client.character_detail(character_id) for character_id in character_ids)
-        )
-        for character_id, detail in zip(character_ids, details, strict=True):
-            assets.update(_collect_urls(detail, f"character-detail:{character_id}"))
     return assets, version
 
 
