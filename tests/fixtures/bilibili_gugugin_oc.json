@@ -1,0 +1,64 @@
+{
+  "profile": {
+    "player": {"name": "B站丨咕咕禽OC", "accountLevel": 307},
+    "playerSeasons": [
+      {"seasonId": 39, "mmr": 8906, "tierId": 7, "tierGradeId": 1, "tierMmr": 606}
+    ],
+    "playerSeasonOverviews": [
+      {
+        "seasonId": 39,
+        "matchingModeId": 0,
+        "teamModeId": 0,
+        "play": 342,
+        "win": 59,
+        "characterStats": [{"key": 31, "play": 159}]
+      },
+      {
+        "seasonId": 39,
+        "matchingModeId": 3,
+        "teamModeId": 3,
+        "play": 339,
+        "win": 59,
+        "top2": 97,
+        "top3": 139,
+        "place": 1425,
+        "playerKill": 1270,
+        "playerAssistant": 1625,
+        "teamKill": 3600,
+        "damageToPlayer": 5757913,
+        "characterStats": [
+          {"key": 31, "play": 156, "win": 31, "playerKill": 789, "teamKill": 1789, "damageToPlayer": 3325769},
+          {"key": 72, "play": 84, "win": 11, "playerKill": 340, "teamKill": 832, "damageToPlayer": 1531564}
+        ]
+      }
+    ]
+  },
+  "matches": [
+    {
+      "gameId": 62884867,
+      "seasonId": 39,
+      "gameRank": 1,
+      "nickname": "B站丨咕咕禽OC",
+      "characterNum": 73,
+      "skinCode": 1073001,
+      "matchingMode": 3,
+      "matchingTeamMode": 3,
+      "playerKill": 3,
+      "playerAssistant": 20,
+      "teamKill": 28,
+      "damageToPlayer": 8410,
+      "mmrAfter": 9096,
+      "mmrGain": 190,
+      "routeIdOfStart": 0,
+      "equipment": [130503, 202516, 201536, 705604, 204406]
+    }
+  ],
+  "characters": [{"id": 73, "name": "夏洛特"}],
+  "items": [
+    {"id": 130503, "name": "烈阳"},
+    {"id": 202516, "name": "精灵舞裙"},
+    {"id": 201536, "name": "白夜王冠"},
+    {"id": 705604, "name": "克拉达戒指"},
+    {"id": 204406, "name": "风火轮"}
+  ]
+}

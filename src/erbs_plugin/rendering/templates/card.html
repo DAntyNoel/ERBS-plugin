@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <style>{{ style | safe }}</style>
+</head>
+<body style="--scale: {{ scale }}">
+  <main id="container" class="card card-{{ card.kind }}">
+    <header class="hero">
+      <div class="eyebrow">ETERNAL RETURN · ERBS</div>
+      <h1>{{ card.title }}</h1>
+      {% if card.get('subtitle') %}<p>{{ card.get('subtitle') }}</p>{% endif %}
+    </header>
+    <div class="content">
+      {% for section in card.sections %}
+      <section class="panel panel-{{ section.type }}">
+        <h2>{{ section.title }}</h2>
+        {% if section.type == "stats" %}
+        <div class="stats-grid">
+          {% for item in section['items'] %}
+          <div class="stat"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
+          {% endfor %}
+        </div>
+        {% elif section.type == "comparison" %}
+        <div class="versus"><b>{{ section.left }}</b><span>VS</span><b>{{ section.right }}</b></div>
+        {% for row in section.rows %}
+        <div class="compare-row"><strong>{{ row.left }}</strong><span>{{ row.label }}</span><strong>{{ row.right }}</strong></div>
+        {% endfor %}
+        {% else %}
+        <div class="item-list">
+          {% for item in section['items'] %}
+          <article class="item">
+            <strong>{{ item.get('name') or item.get('nickname') or item.get('label') or ('ID ' ~ (item.get('itemId') or item.get('id') or item.get('characterId') or '')) }}</strong>
+            <div class="chips">
+              {% for key, value in item.items() %}
+                {% if key not in ['name', 'nickname', 'label', 'raw', 'tooltip', 'imageUrl', 'iconUrl', 'communityImageUrl'] and (value is string or value is number or value is boolean) %}
+                <span>{{ key }}: {{ value }}</span>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </article>
+          {% else %}
+          <div class="empty">暂无记录</div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+    <footer>
+      <span>Data source: {{ card.footer.get('source', 'DAK.GG') }}</span>
+      <span>{% if card.footer.get('cached') %}CACHE{% else %}LIVE{% endif %}</span>
+      {% if card.footer.get('updatedAt') %}<span>{{ card.footer.get('updatedAt') }}</span>{% endif %}
+    </footer>
+  </main>
+</body>
+</html>
