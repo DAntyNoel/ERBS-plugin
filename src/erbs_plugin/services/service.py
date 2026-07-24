@@ -166,8 +166,20 @@ class ERBSService:
         )
 
     async def characters_card(self, nickname: str) -> CardPayload:
-        profile = await self.profile(nickname)
+        profile, metadata = await asyncio.gather(
+            self.profile(nickname), self.client.metadata("characters")
+        )
+        character_map = {
+            int(item["id"]): item
+            for item in metadata.get("characters") or ()
+            if isinstance(item, Mapping) and item.get("id") is not None
+        }
         heroes = self.analysis.hero_pool(profile)
+        for hero in heroes:
+            character_id = int(hero.get("key") or hero.get("characterNum") or 0)
+            character = character_map.get(character_id, {})
+            hero["name"] = character.get("name") or f"角色 {character_id}"
+            hero["imageUrl"] = character.get("imageUrl")
         return CardPayload(
             kind="characters",
             title=nickname,
@@ -177,9 +189,19 @@ class ERBSService:
         )
 
     async def skins_card(self, nickname: str) -> CardPayload:
-        data = await self.client.player_matches(
-            nickname.strip(), matching_mode="RANK", team_mode="SQUAD", page=1
+        data, metadata = await asyncio.gather(
+            self.client.player_matches(
+                nickname.strip(), matching_mode="RANK", team_mode="SQUAD", page=1
+            ),
+            self.client.metadata("characters"),
         )
+        skin_map = {
+            int(skin["id"]): skin
+            for character in metadata.get("characters") or ()
+            if isinstance(character, Mapping)
+            for skin in character.get("skins") or ()
+            if isinstance(skin, Mapping) and skin.get("id") is not None
+        }
         skins = Counter(
             int(item.get("skinCode") or 0)
             for item in data.get("matches") or ()
@@ -193,7 +215,13 @@ class ERBSService:
                 _items_section(
                     "最近战绩中的皮肤",
                     [
-                        {"name": f"Skin {skin_code}", "skinCode": skin_code, "count": count}
+                        {
+                            "name": skin_map.get(skin_code, {}).get("name")
+                            or f"Skin {skin_code}",
+                            "imageUrl": skin_map.get(skin_code, {}).get("imageUrl"),
+                            "skinCode": skin_code,
+                            "count": count,
+                        }
                         for skin_code, count in skins.most_common(20)
                     ],
                 ),
@@ -316,7 +344,9 @@ class ERBSService:
         matches, _, item_map = await self._matches_with_names(nickname, count=20)
         habits = self.analysis.equipment_habits(matches)
         for item in habits:
-            item["name"] = item_map.get(int(item["itemId"]), f"Item {item['itemId']}")
+            metadata = item_map.get(int(item["itemId"]), {})
+            item["name"] = metadata.get("name") or f"Item {item['itemId']}"
+            item["imageUrl"] = metadata.get("imageUrl")
         return CardPayload(
             kind="characters",
             title=nickname,
@@ -407,19 +437,21 @@ class ERBSService:
 
     async def _matches_with_names(
         self, nickname: str, *, count: int
-    ) -> tuple[list[MatchRecord], dict[int, str], dict[int, str]]:
+    ) -> tuple[
+        list[MatchRecord], dict[int, Mapping[str, Any]], dict[int, Mapping[str, Any]]
+    ]:
         matches, characters, items = await asyncio.gather(
             self.matches(nickname, count=count, matching_mode="RANK"),
             self.client.metadata("characters"),
             self.client.metadata("items"),
         )
         character_map = {
-            int(item["id"]): str(item.get("name") or item.get("key") or item["id"])
+            int(item["id"]): item
             for item in characters.get("characters") or ()
             if isinstance(item, Mapping) and item.get("id") is not None
         }
         item_map = {
-            int(item["id"]): str(item.get("name") or item.get("key") or item["id"])
+            int(item["id"]): item
             for item in items.get("items") or ()
             if isinstance(item, Mapping) and item.get("id") is not None
         }
@@ -428,16 +460,18 @@ class ERBSService:
     @staticmethod
     def _match_item(
         match: MatchRecord | None,
-        character_map: Mapping[int, str] | None = None,
-        item_map: Mapping[int, str] | None = None,
+        character_map: Mapping[int, Mapping[str, Any]] | None = None,
+        item_map: Mapping[int, Mapping[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if match is None:
             return {}
         character_map = character_map or {}
         item_map = item_map or {}
-        character_name = character_map.get(match.character_id, f"角色 {match.character_id}")
+        character = character_map.get(match.character_id, {})
+        character_name = character.get("name") or f"角色 {match.character_id}"
         return {
             "name": f"#{match.rank} · {character_name}",
+            "imageUrl": character.get("imageUrl"),
             "gameId": match.game_id,
             "characterId": match.character_id,
             "skinCode": match.skin_code,
@@ -449,7 +483,8 @@ class ERBSService:
             "mmrAfter": match.mmr_after,
             "routeId": match.route_id or "Private",
             "equipment": " · ".join(
-                item_map.get(item_id, f"Item {item_id}") for item_id in match.equipment
+                str(item_map.get(item_id, {}).get("name") or f"Item {item_id}")
+                for item_id in match.equipment
             ),
         }
 

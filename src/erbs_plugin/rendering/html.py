@@ -86,7 +86,7 @@ class HtmlCardRenderer:
         style_text = template_dir.joinpath("card.css").read_text(encoding="utf-8")
         env = Environment(autoescape=True, undefined=StrictUndefined)
         html = env.from_string(template_text).render(
-            card=asdict(payload),
+            card=self._localize_images(asdict(payload)),
             style=style_text,
             scale=self.config.render_scale,
             asset_root=self.config.asset_directory.resolve().as_uri(),
@@ -108,6 +108,15 @@ class HtmlCardRenderer:
         if self._render_count >= self.config.render_restart_after:
             await self._restart()
         return image
+
+    def _localize_images(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: self._localize_images(child) for key, child in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._localize_images(child) for child in value]
+        if isinstance(value, str) and value.startswith(("http://", "https://", "//")):
+            return self.assets.resolve_source(value).resolve().as_uri()
+        return value
 
     async def _restart(self) -> None:
         await self.close()

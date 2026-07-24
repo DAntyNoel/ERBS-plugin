@@ -61,6 +61,16 @@ class AssetManager:
             raise AssetMissing(key)
         return path
 
+    def resolve_source(self, source: str) -> Path:
+        normalized = source if not source.startswith("//") else f"https:{source}"
+        for entry in self.load_manifest().values():
+            if entry.source != normalized:
+                continue
+            path = self.directory / entry.path
+            if path.is_file():
+                return path
+        return self.placeholder_path()
+
     @staticmethod
     def placeholder_path() -> Path:
         return Path(__file__).with_name("placeholder.svg")

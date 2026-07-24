@@ -26,6 +26,9 @@ def test_manifest_check_and_prune(tmp_path) -> None:
     manager.save_manifest({entry.key: entry}, version="test")
 
     assert manager.check() == []
+    assert manager.resolve_source(entry.source) == image
+    missing = manager.resolve_source("https://example.invalid/missing.png")
+    assert missing == manager.placeholder_path()
     assert manager.prune(set()) == [entry.key]
     assert not image.exists()
 

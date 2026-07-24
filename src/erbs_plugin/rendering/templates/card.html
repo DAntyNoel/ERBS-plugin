@@ -30,13 +30,17 @@
         <div class="item-list">
           {% for item in section['items'] %}
           <article class="item">
-            <strong>{{ item.get('name') or item.get('nickname') or item.get('label') or ('ID ' ~ (item.get('itemId') or item.get('id') or item.get('characterId') or '')) }}</strong>
-            <div class="chips">
-              {% for key, value in item.items() %}
-                {% if key not in ['name', 'nickname', 'label', 'raw', 'tooltip', 'imageUrl', 'iconUrl', 'communityImageUrl'] and (value is string or value is number or value is boolean) %}
-                <span>{{ key }}: {{ value }}</span>
-                {% endif %}
-              {% endfor %}
+            {% set image = item.get('imageUrl') or item.get('iconUrl') or item.get('communityImageUrl') %}
+            {% if image %}<img class="item-icon" src="{{ image }}" alt="">{% endif %}
+            <div class="item-body">
+              <strong>{{ item.get('name') or item.get('nickname') or item.get('label') or ('ID ' ~ (item.get('itemId') or item.get('id') or item.get('characterId') or '')) }}</strong>
+              <div class="chips">
+                {% for key, value in item.items() %}
+                  {% if key not in ['name', 'nickname', 'label', 'raw', 'tooltip', 'imageUrl', 'iconUrl', 'communityImageUrl'] and (value is string or value is number or value is boolean) %}
+                  <span>{{ key }}: {{ value }}</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
             </div>
           </article>
           {% else %}
