@@ -19,6 +19,7 @@ render = [
 ]
 
 [project.scripts]
+erbs = "erbs_plugin.cli:main"
 erbs-assets = "erbs_plugin.assets.cli:main"
 
 [dependency-groups]

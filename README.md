@@ -1,44 +1,91 @@
 # ERBS-plugin
 
-Framework-agnostic Eternal Return data, analysis, asset, and card-rendering library.
+ERBS-plugin is an independent, framework-neutral Python package for Eternal Return data queries,
+analysis, JSON output, local asset management, and PNG card rendering.
 
-ERBS-plugin contains no NoneBot, Discord, QQ, or platform event types. Bot projects consume the
-Python API and provide their own command adapters.
+It does not parse application events, store application-user bindings, enforce application-level
+cooldowns, or send messages. Consumers import its Python API or invoke its command-line interface
+and decide how to present the returned JSON text or PNG data.
 
 ## Install
 
+Python 3.12 is required.
+
 ```bash
 pip install erbs-plugin
+```
+
+PNG output additionally requires the render extra and an existing Chrome, Edge, or Chromium
+installation:
+
+```bash
 pip install 'erbs-plugin[render]'
 ```
 
-The render extra uses an existing Chrome, Edge, or Chromium installation; it does not download a
-browser automatically.
+## Command line
 
-## Quick start
-
-```python
-from erbs_plugin import AsyncERBSClient, ERBSService
-
-async with AsyncERBSClient() as client:
-    service = ERBSService(client)
-    card = await service.player_overview("eternalreturn")
-```
-
-Download image assets before enabling image rendering:
+Query JSON directly:
 
 ```bash
-erbs-assets download --directory ./data/erbs-assets
-erbs-assets check --directory ./data/erbs-assets
+erbs overview eternalreturn
+erbs matches eternalreturn --count 10
+erbs compare player-one player-two
 ```
 
-Runtime code never downloads missing images. See [docs/integration.md](docs/integration.md).
+Prepare local assets and render a PNG file:
+
+```bash
+erbs assets download --directory ./data/erbs-assets
+erbs assets check --directory ./data/erbs-assets
+erbs overview eternalreturn \
+  --format path \
+  --output ./player.png \
+  --asset-directory ./data/erbs-assets
+```
+
+Raw PNG bytes can be piped or redirected:
+
+```bash
+erbs overview eternalreturn --format bytes --asset-directory ./data/erbs-assets > player.png
+```
+
+The same CLI is available through `python -m erbs_plugin`. The existing `erbs-assets` command is
+retained for compatibility.
+
+## Python API
+
+The recommended API consists of async query functions:
+
+```python
+from erbs_plugin import player_overview
+
+json_text = await player_overview("eternalreturn", format="json")
+png_bytes = await player_overview("eternalreturn", format="bytes")
+png_path = await player_overview(
+    "eternalreturn",
+    format="path",
+    output="player.png",
+)
+```
+
+Available functions cover player overview, rank, statistics, matches, recent performance,
+characters, skins, teammates, multi-player queries, comparisons, best matches, hero pools,
+equipment habits, leaderboards, character statistics, items, and routes. The generic `query()`
+function exposes the same operations through a single entry point.
+
+Long-running consumers can pass an existing `AsyncERBSClient` and `HtmlCardRenderer`; resources
+supplied by the caller remain owned by the caller. The lower-level client, service, model, analysis,
+and renderer classes remain public for advanced use.
+
+See [QUICK_START.md](QUICK_START.md) and [docs/integration.md](docs/integration.md).
 
 ## Data source and boundaries
 
-Data is read from public DAK.GG Eternal Return endpoints used by its public website. The library
+Data is read from public DAK.GG Eternal Return endpoints used by its public website. The package
 does not invoke player refresh, authentication, management, or write endpoints. Consumers should
-use conservative caching and request rates and display `Data source: DAK.GG`.
+use conservative request rates and display `Data source: DAK.GG` where appropriate.
+
+Runtime rendering reads local image assets and never downloads missing assets implicitly.
 
 ## License
 
