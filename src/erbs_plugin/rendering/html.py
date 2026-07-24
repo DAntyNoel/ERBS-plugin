@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import mimetypes
 import os
 import shutil
 from dataclasses import asdict
@@ -115,7 +117,10 @@ class HtmlCardRenderer:
         if isinstance(value, (list, tuple)):
             return [self._localize_images(child) for child in value]
         if isinstance(value, str) and value.startswith(("http://", "https://", "//")):
-            return self.assets.resolve_source(value).resolve().as_uri()
+            path = self.assets.resolve_source(value)
+            media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+            return f"data:{media_type};base64,{encoded}"
         return value
 
     async def _restart(self) -> None:
