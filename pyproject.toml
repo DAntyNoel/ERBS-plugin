@@ -41,6 +41,10 @@ include = [
     "src/erbs_plugin/**/*.py",
     "src/erbs_plugin/rendering/templates/*.html",
     "src/erbs_plugin/rendering/templates/*.css",
+    "src/erbs_plugin/rendering/theme/*.png",
+    "src/erbs_plugin/rendering/theme/*.gif",
+    "src/erbs_plugin/rendering/theme/*.ttf",
+    "src/erbs_plugin/rendering/theme/*.txt",
     "src/erbs_plugin/assets/*.svg",
 ]
 

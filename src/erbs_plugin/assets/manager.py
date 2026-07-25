@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
+from platformdirs import user_data_path
 
 from ..exceptions import AssetMissing
 
@@ -34,6 +35,49 @@ class AssetManager:
     def __init__(self, directory: str | Path) -> None:
         self.directory = Path(directory)
         self.manifest_path = self.directory / "manifest.json"
+
+    @classmethod
+    def discover(
+        cls,
+        preferred: str | Path | None = None,
+        *,
+        search_from: str | Path | None = None,
+    ) -> AssetManager:
+        """Find a downloaded local asset manifest for rendering."""
+
+        start = Path(search_from or Path.cwd()).resolve()
+        candidates: list[Path] = []
+        if preferred is not None:
+            candidates.append(Path(preferred).expanduser())
+        for root in (start, *start.parents):
+            candidates.extend(
+                (
+                    root,
+                    root / "assets",
+                    root / "data" / "erbs-assets",
+                    root / "erbs-assets",
+                )
+            )
+        candidates.append(user_data_path("erbs-plugin", appauthor=False) / "assets")
+
+        seen: set[Path] = set()
+        for candidate in candidates:
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            manifest = resolved / "manifest.json"
+            if not manifest.is_file():
+                continue
+            try:
+                raw = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(raw, dict) and isinstance(raw.get("assets"), dict):
+                return cls(resolved)
+
+        fallback = Path(preferred).expanduser() if preferred is not None else start / "assets"
+        return cls(fallback)
 
     def load_manifest(self) -> dict[str, AssetEntry]:
         if not self.manifest_path.exists():
@@ -70,6 +114,19 @@ class AssetManager:
             if path.is_file():
                 return path
         return self.placeholder_path()
+
+    def resolve_filename(self, filename: str) -> Path:
+        """Resolve a downloaded asset by its source filename."""
+
+        if not filename or Path(filename).name != filename:
+            raise AssetMissing(filename)
+        for entry in self.load_manifest().values():
+            if Path(urlparse(entry.source).path).name != filename:
+                continue
+            path = self.directory / entry.path
+            if path.is_file() and not entry.placeholder:
+                return path
+        raise AssetMissing(filename)
 
     @staticmethod
     def placeholder_path() -> Path:

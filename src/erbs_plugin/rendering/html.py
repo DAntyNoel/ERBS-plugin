@@ -6,6 +6,7 @@ import mimetypes
 import os
 import shutil
 from dataclasses import asdict
+from functools import cache
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -16,10 +17,26 @@ from ..exceptions import RenderFailed
 from ..models import CardPayload
 
 
+@cache
+def _theme_asset(name: str, media_type: str) -> str:
+    path = files("erbs_plugin.rendering").joinpath("theme", name)
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
+
+
+def _theme() -> dict[str, str]:
+    return {
+        "logo": _theme_asset("eternal-return-logo.png", "image/png"),
+        "bot_avatar": _theme_asset("erbs-bot.gif", "image/gif"),
+        "font_semibold": _theme_asset("Rajdhani-SemiBold.ttf", "font/ttf"),
+        "font_bold": _theme_asset("Rajdhani-Bold.ttf", "font/ttf"),
+    }
+
+
 class HtmlCardRenderer:
     def __init__(self, config: ERBSConfig | None = None) -> None:
         self.config = config or ERBSConfig()
-        self.assets = AssetManager(self.config.asset_directory)
+        self.assets = AssetManager.discover(self.config.asset_directory)
         self._playwright: Any = None
         self._browser: Any = None
         self._lock = asyncio.Lock()
@@ -87,11 +104,12 @@ class HtmlCardRenderer:
         template_text = template_dir.joinpath("card.html").read_text(encoding="utf-8")
         style_text = template_dir.joinpath("card.css").read_text(encoding="utf-8")
         env = Environment(autoescape=True, undefined=StrictUndefined)
+        theme = _theme()
         html = env.from_string(template_text).render(
             card=self._localize_images(asdict(payload)),
-            style=style_text,
+            style=env.from_string(style_text).render(theme=theme),
             scale=self.config.render_scale,
-            asset_root=self.config.asset_directory.resolve().as_uri(),
+            theme=theme,
         )
         page = await self._browser.new_page(device_scale_factor=1)
         try:
@@ -102,6 +120,7 @@ class HtmlCardRenderer:
                 else route.continue_(),
             )
             await page.set_content(html, wait_until="load")
+            await page.evaluate("document.fonts.ready")
             container = page.locator("#container")
             image = await container.screenshot(type="png")
         finally:
@@ -116,8 +135,13 @@ class HtmlCardRenderer:
             return {key: self._localize_images(child) for key, child in value.items()}
         if isinstance(value, (list, tuple)):
             return [self._localize_images(child) for child in value]
-        if isinstance(value, str) and value.startswith(("http://", "https://", "//")):
+        if isinstance(value, str) and value.startswith("asset://"):
+            path = self.assets.resolve_filename(value.removeprefix("asset://"))
+        elif isinstance(value, str) and value.startswith(("http://", "https://", "//")):
             path = self.assets.resolve_source(value)
+        else:
+            return value
+        if path.is_file():
             media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             encoded = base64.b64encode(path.read_bytes()).decode("ascii")
             return f"data:{media_type};base64,{encoded}"

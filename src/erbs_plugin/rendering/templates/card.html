@@ -6,19 +6,75 @@
 </head>
 <body style="--scale: {{ scale }}">
   <main id="container" class="card card-{{ card.kind }}">
+    <div class="backdrop-field" aria-hidden="true"></div>
+    <img class="logo-watermark" src="{{ theme.logo }}" alt="" aria-hidden="true">
     <header class="hero">
-      <div class="eyebrow">ETERNAL RETURN · ERBS</div>
-      <h1>{{ card.title }}</h1>
-      {% if card.get('subtitle') %}<p>{{ card.get('subtitle') }}</p>{% endif %}
+      <div class="hero-topline">
+        <div class="eyebrow">
+          <i></i>
+          <span>LUMIA ISLAND DATA LINK</span>
+          <b>{{ card.kind | upper }}</b>
+        </div>
+      </div>
+      <div class="hero-copy">
+        <div class="title-meta">
+          <span class="title-index">ER //</span>
+          {% if card.get('subtitle') %}<p>{{ card.get('subtitle') }}</p>{% endif %}
+        </div>
+        <h1{% if card.title | length > 20 %} class="long-title"{% endif %}>{{ card.title }}</h1>
+        <div class="brand-cluster">
+          <div class="brand-lockup" aria-label="永恒轮回">
+            <img src="{{ theme.logo }}" alt="永恒轮回">
+          </div>
+          <div class="bot-unit" aria-label="ERBS 机器人在线">
+            <div class="bot-portrait"><img src="{{ theme.bot_avatar }}" alt="ERBS 机器人"></div>
+          </div>
+        </div>
+      </div>
     </header>
     <div class="content">
       {% for section in card.sections %}
       <section class="panel panel-{{ section.type }}">
-        <h2>{{ section.title }}</h2>
+        <h2><i></i><span>{{ section.title }}</span><b>0{{ loop.index }}</b></h2>
         {% if section.type == "stats" %}
         <div class="stats-grid">
           {% for item in section['items'] %}
-          <div class="stat"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div>
+          <div class="stat">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <i aria-hidden="true"></i>
+          </div>
+          {% endfor %}
+        </div>
+        {% elif section.type == "placements" %}
+        <div class="placement-track">
+          {% for item in section['items'] %}
+          <div class="placement{% if item.get('victory') %} placement-win{% elif item.get('podium') %} placement-podium{% endif %}">
+            <small>{{ "%02d" | format(loop.index) }}</small>
+            <strong>#{{ item.rank }}</strong>
+            <i aria-hidden="true"></i>
+          </div>
+          {% else %}
+          <div class="empty">暂无记录</div>
+          {% endfor %}
+        </div>
+        {% elif section.type == "hero-pool" %}
+        <div class="hero-pool-grid">
+          {% for item in section['items'] %}
+          <article class="hero-pool-item">
+            <span class="hero-pool-rank">{{ "%02d" | format(item.poolRank) }}</span>
+            {% if item.get('imageUrl') %}<img src="{{ item.imageUrl }}" alt="{{ item.name }}">{% endif %}
+            <div class="hero-pool-body">
+              <strong>{{ item.name }}</strong>
+              <div class="hero-pool-metrics">
+                <span><small>场次</small><b>{{ item.plays }}</b></span>
+                <span><small>胜率</small><b>{{ item.winRate }}</b></span>
+                <span><small>使用率</small><b>{{ item.usagePercent }}</b></span>
+              </div>
+            </div>
+          </article>
+          {% else %}
+          <div class="empty">暂无记录</div>
           {% endfor %}
         </div>
         {% elif section.type == "comparison" %}
@@ -29,6 +85,42 @@
         {% else %}
         <div class="item-list">
           {% for item in section['items'] %}
+          {% if item.get('layout') == 'match' %}
+          <article class="match-item{% if item.get('rank') == 1 %} match-win{% elif item.get('rank', 99) <= 3 %} match-podium{% endif %}">
+            <div class="match-identity">
+              {% if item.get('imageUrl') %}<img class="match-character" src="{{ item.imageUrl }}" alt="{{ item.characterName }}">{% endif %}
+              <div class="match-copy">
+                <div class="match-heading">
+                  <span class="match-rank">#{{ item.rank }}</span>
+                  <strong>{{ item.characterName }}</strong>
+                </div>
+                <div class="match-rp">
+                  <span class="{% if item.mmrGain > 0 %}gain-positive{% elif item.mmrGain < 0 %}gain-negative{% endif %}">{% if item.mmrGain > 0 %}+{% endif %}{{ item.mmrGain }} RP</span>
+                  <small>{{ item.mmrAfter }} MMR</small>
+                </div>
+              </div>
+            </div>
+            <div class="match-data">
+              <div class="match-metrics">
+                <div class="match-metric metric-tk"><span>TK</span><strong>{{ item.teamKills }}</strong></div>
+                <div class="match-metric"><span>K</span><strong>{{ item.kills }}</strong></div>
+                <div class="match-metric"><span>D</span><strong>{{ item.deaths }}</strong></div>
+                <div class="match-metric metric-damage"><span>伤害</span><strong>{{ item.damage }}</strong></div>
+              </div>
+              <div class="match-equipment">
+                <span class="equipment-label">EQUIPMENT // 05</span>
+                <div class="equipment-slots">
+                  {% for equipment in item.get('equipmentItems', []) %}
+                  <figure class="equipment-slot grade-{{ equipment.get('grade', 'Common') | lower }}">
+                    <div class="equipment-art">{% if equipment.get('imageUrl') %}<img src="{{ equipment.imageUrl }}" alt="{{ equipment.name }}">{% endif %}</div>
+                    <figcaption>{{ equipment.name }}</figcaption>
+                  </figure>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </article>
+          {% else %}
           <article class="item">
             {% set image = item.get('imageUrl') or item.get('iconUrl') or item.get('communityImageUrl') %}
             {% if image %}<img class="item-icon" src="{{ image }}" alt="">{% endif %}
@@ -43,6 +135,7 @@
               </div>
             </div>
           </article>
+          {% endif %}
           {% else %}
           <div class="empty">暂无记录</div>
           {% endfor %}
@@ -52,8 +145,9 @@
       {% endfor %}
     </div>
     <footer>
-      <span>Data source: {{ card.footer.get('source', 'DAK.GG') }}</span>
-      <span>{% if card.footer.get('cached') %}CACHE{% else %}LIVE{% endif %}</span>
+      <span class="footer-brand">ERBS // TACTICAL RECORD</span>
+      <span>DATA {{ card.footer.get('source', 'DAK.GG') }}</span>
+      <span class="status"><i></i>{% if card.footer.get('cached') %}CACHE{% else %}LIVE{% endif %}</span>
       {% if card.footer.get('updatedAt') %}<span>{{ card.footer.get('updatedAt') }}</span>{% endif %}
     </footer>
   </main>
