@@ -52,8 +52,25 @@ async def test_latest_match_and_equipment_names_match_dak_page() -> None:
     assert item["teamKills"] == 28
     assert item["kills"] == 3
     assert item["assists"] == 20
+    assert item["deaths"] == 4
     assert item["damage"] == 8410
     assert item["mmrAfter"] == 9096
     assert item["mmrGain"] == 190
     assert item["routeId"] == "Private"
     assert item["equipment"] == "烈阳 · 精灵舞裙 · 白夜王冠 · 克拉达戒指 · 风火轮"
+    assert [equipment["name"] for equipment in item["equipmentItems"]] == [
+        "烈阳",
+        "精灵舞裙",
+        "白夜王冠",
+        "克拉达戒指",
+        "风火轮",
+    ]
+    assert len(item["equipmentItems"]) == 5
+    assert [equipment["grade"] for equipment in item["equipmentItems"]] == [
+        "Legend",
+        "Legend",
+        "Legend",
+        "Legend",
+        "Epic",
+    ]
+    assert all(equipment["imageUrl"].endswith(".png") for equipment in item["equipmentItems"])

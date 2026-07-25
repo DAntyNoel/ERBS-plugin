@@ -116,6 +116,7 @@ class MatchRecord:
     character_id: int
     kills: int
     assists: int
+    deaths: int
     team_kills: int
     damage: int
     mmr_gain: int
@@ -139,6 +140,7 @@ class MatchRecord:
             character_id=_number(data.get("characterNum")),
             kills=_number(data.get("playerKill")),
             assists=_number(data.get("playerAssistant")),
+            deaths=_number(data.get("playerDeaths")),
             team_kills=_number(data.get("teamKill")),
             damage=_number(data.get("damageToPlayer")),
             mmr_gain=_number(data.get("mmrGain")),

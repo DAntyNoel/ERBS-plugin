@@ -63,21 +63,36 @@ class ERBSService:
         return result
 
     async def player_overview(self, nickname: str) -> CardPayload:
-        profile = await self.profile(nickname)
+        profile, matches, metadata = await asyncio.gather(
+            self.profile(nickname),
+            self.matches(nickname, count=20),
+            self.client.metadata("characters"),
+        )
         overview = profile.overview
         stats = [
             {"label": "等级", "value": profile.account_level},
-            {"label": "MMR", "value": profile.mmr},
+            {"label": "赛季", "value": profile.season_id or "-"},
             {"label": "场次", "value": overview.get("play", 0)},
             {"label": "胜场", "value": overview.get("win", 0)},
+            {
+                "label": "胜率",
+                "value": self._rate(overview.get("win"), overview.get("play")),
+            },
             {"label": "TOP 3", "value": overview.get("top3", 0)},
             {"label": "击杀", "value": overview.get("playerKill", 0)},
+            {"label": "助攻", "value": overview.get("playerAssistant", 0)},
         ]
+        heroes = self._hero_pool_items(profile, metadata)
         return CardPayload(
             kind="player",
             title=profile.nickname,
             subtitle="玩家综合资料",
-            sections=({"title": "赛季概览", "type": "stats", "items": stats},),
+            sections=(
+                {"title": "赛季概览", "type": "stats", "items": stats},
+                self._rank_section(profile),
+                *self._recent_sections(matches),
+                self._hero_pool_section(heroes),
+            ),
             footer=self._footer(profile),
         )
 
@@ -87,18 +102,7 @@ class ERBSService:
             kind="player",
             title=profile.nickname,
             subtitle="段位信息",
-            sections=(
-                {
-                    "title": "当前段位",
-                    "type": "stats",
-                    "items": [
-                        {"label": "MMR", "value": profile.mmr},
-                        {"label": "Tier ID", "value": profile.tier_id or "-"},
-                        {"label": "小段", "value": profile.tier_grade_id or "-"},
-                        {"label": "小段 RP", "value": profile.tier_mmr or "-"},
-                    ],
-                },
-            ),
+            sections=(self._rank_section(profile),),
             footer=self._footer(profile),
         )
 
@@ -142,26 +146,11 @@ class ERBSService:
 
     async def recent_card(self, nickname: str) -> CardPayload:
         matches = await self.matches(nickname, count=20)
-        wins = sum(item.victory for item in matches)
-        top3 = sum(item.rank <= 3 for item in matches)
-        avg_rank = sum(item.rank for item in matches) / len(matches) if matches else 0
         return CardPayload(
             kind="matches",
             title=nickname,
             subtitle="近期状态",
-            sections=(
-                {
-                    "title": "最近 20 场摘要",
-                    "type": "stats",
-                    "items": [
-                        {"label": "场次", "value": len(matches)},
-                        {"label": "胜场", "value": wins},
-                        {"label": "TOP 3", "value": top3},
-                        {"label": "平均排名", "value": f"#{avg_rank:.1f}" if matches else "-"},
-                    ],
-                },
-                _items_section("名次序列", [{"name": f"#{item.rank}"} for item in matches]),
-            ),
+            sections=self._recent_sections(matches),
             footer=self._plain_footer(),
         )
 
@@ -169,22 +158,12 @@ class ERBSService:
         profile, metadata = await asyncio.gather(
             self.profile(nickname), self.client.metadata("characters")
         )
-        character_map = {
-            int(item["id"]): item
-            for item in metadata.get("characters") or ()
-            if isinstance(item, Mapping) and item.get("id") is not None
-        }
-        heroes = self.analysis.hero_pool(profile)
-        for hero in heroes:
-            character_id = int(hero.get("key") or hero.get("characterNum") or 0)
-            character = character_map.get(character_id, {})
-            hero["name"] = character.get("name") or f"角色 {character_id}"
-            hero["imageUrl"] = character.get("imageUrl")
+        heroes = self._hero_pool_items(profile, metadata)
         return CardPayload(
             kind="characters",
             title=nickname,
             subtitle="实验体统计",
-            sections=(_items_section("常用实验体", heroes),),
+            sections=(self._hero_pool_section(heroes),),
             footer=self._footer(profile),
         )
 
@@ -374,13 +353,66 @@ class ERBSService:
 
     async def character_card(self, query: str, *, weapon: str | None = None) -> CardPayload:
         character = await self.resolve_metadata("characters", query, "characters")
-        detail = await self.client.character_detail(int(character["id"]), weapon_type=weapon)
+        weapon_key, weapon_id = self._resolve_weapon(character, weapon)
+        detail = await self.client.character_detail(
+            str(character.get("key") or character["id"]),
+            weapon_type=weapon_key,
+        )
+        snapshot = detail.get("characterDetailStatSnapshot") or {}
+        character_stats = (
+            snapshot.get("characterDetailStat")
+            if isinstance(snapshot, Mapping)
+            else {}
+        ) or {}
+        weapon_stats = (
+            character_stats.get("weaponStats")
+            if isinstance(character_stats, Mapping)
+            else ()
+        ) or ()
+        selected = next(
+            (
+                item
+                for item in weapon_stats
+                if isinstance(item, Mapping) and int(item.get("key") or 0) == weapon_id
+            ),
+            {},
+        )
+        play = int(selected.get("count") or 0)
+
+        def average(key: str) -> str:
+            return f"{float(selected.get(key) or 0) / play:.2f}" if play else "-"
+
         return CardPayload(
             kind="global",
             title=str(character.get("name") or query),
-            subtitle="角色强度",
-            sections=(_items_section("统计", [dict(detail)]),),
-            footer=self._plain_footer(),
+            subtitle=f"角色强度 · {weapon_key}",
+            sections=(
+                {
+                    "title": "当前版本统计",
+                    "type": "stats",
+                    "items": [
+                        {"label": "场次", "value": play},
+                        {
+                            "label": "胜率",
+                            "value": f"{int(selected.get('win') or 0) / play * 100:.1f}%"
+                            if play
+                            else "-",
+                        },
+                        {
+                            "label": "TOP 3",
+                            "value": f"{int(selected.get('top3') or 0) / play * 100:.1f}%"
+                            if play
+                            else "-",
+                        },
+                        {"label": "平均排名", "value": f"#{average('place')}"},
+                        {"label": "平均 TK", "value": average("teamKill")},
+                        {"label": "平均 K", "value": average("playerKill")},
+                        {"label": "平均 D", "value": average("playerDeaths")},
+                        {"label": "平均伤害", "value": average("damageToPlayer")},
+                    ],
+                },
+            ),
+            footer=self._plain_footer(cached=bool(detail.get("_erbs_cached"))),
         )
 
     async def item_card(self, query: str) -> CardPayload:
@@ -395,15 +427,47 @@ class ERBSService:
 
     async def routes_card(self, character_query: str, *, weapon: str | None = None) -> CardPayload:
         character = await self.resolve_metadata("characters", character_query, "characters")
-        data = await self.client.routes(character=int(character["id"]), weaponType=weapon)
-        routes = data.get("routes") or data.get("items") or []
+        weapon_key, _ = self._resolve_weapon(character, weapon)
+        data = await self.client.routes(
+            character=str(character.get("key") or character["id"]),
+            weaponType=weapon_key,
+        )
+        routes = data.get("weaponRoutes") or data.get("routes") or data.get("items") or []
         return CardPayload(
             kind="global",
             title=str(character.get("name") or character_query),
-            subtitle="路线",
+            subtitle=f"路线 · {weapon_key}",
             sections=(_items_section("推荐路线", [dict(item) for item in routes[:10]]),),
             footer=self._plain_footer(cached=bool(data.get("_erbs_cached"))),
         )
+
+    @staticmethod
+    def _resolve_weapon(
+        character: Mapping[str, Any], weapon: str | None
+    ) -> tuple[str, int]:
+        weapon_types = [
+            item
+            for item in character.get("weaponTypes") or ()
+            if isinstance(item, Mapping) and item.get("key") and item.get("id") is not None
+        ]
+        if not weapon_types:
+            if weapon is None:
+                raise InvalidQuery("该角色缺少武器类型元数据")
+            return weapon, 0
+        selected = next(
+            (
+                item
+                for item in weapon_types
+                if weapon is None
+                or str(item.get("key", "")).casefold() == weapon.casefold()
+                or str(item.get("id")) == weapon
+            ),
+            None,
+        )
+        if selected is None:
+            choices = " / ".join(str(item["key"]) for item in weapon_types)
+            raise InvalidQuery(f"不支持的武器类型：{weapon}（可选：{choices}）")
+        return str(selected["key"]), int(selected["id"])
 
     async def resolve_metadata(
         self, metadata_name: str, query: str, collection_name: str
@@ -434,6 +498,76 @@ class ERBSService:
     @staticmethod
     def _average(data: Mapping[str, Any], key: str, count: int) -> str:
         return f"{float(data.get(key) or 0) / count:.2f}" if count else "-"
+
+    @staticmethod
+    def _rate(numerator: Any, denominator: Any) -> str:
+        total = int(denominator or 0)
+        return f"{int(numerator or 0) / total * 100:.1f}%" if total else "-"
+
+    @staticmethod
+    def _rank_section(profile: PlayerProfile) -> Mapping[str, Any]:
+        return {
+            "title": "当前段位",
+            "type": "stats",
+            "items": [
+                {"label": "MMR", "value": profile.mmr},
+                {"label": "Tier ID", "value": profile.tier_id or "-"},
+                {"label": "小段", "value": profile.tier_grade_id or "-"},
+                {"label": "小段 RP", "value": profile.tier_mmr or "-"},
+            ],
+        }
+
+    @staticmethod
+    def _recent_sections(matches: list[MatchRecord]) -> tuple[Mapping[str, Any], ...]:
+        wins = sum(item.victory for item in matches)
+        top3 = sum(item.rank <= 3 for item in matches)
+        avg_rank = sum(item.rank for item in matches) / len(matches) if matches else 0
+        return (
+            {
+                "title": "最近 20 场摘要",
+                "type": "stats",
+                "items": [
+                    {"label": "场次", "value": len(matches)},
+                    {"label": "胜场", "value": wins},
+                    {"label": "TOP 3", "value": top3},
+                    {"label": "平均排名", "value": f"#{avg_rank:.1f}" if matches else "-"},
+                ],
+            },
+            {
+                "title": "名次走势",
+                "type": "placements",
+                "items": [
+                    {"rank": item.rank, "victory": item.victory, "podium": item.rank <= 3}
+                    for item in matches
+                ],
+            },
+        )
+
+    def _hero_pool_items(
+        self,
+        profile: PlayerProfile,
+        metadata: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        character_map = {
+            int(item["id"]): item
+            for item in metadata.get("characters") or ()
+            if isinstance(item, Mapping) and item.get("id") is not None
+        }
+        heroes = self.analysis.hero_pool(profile)
+        for index, hero in enumerate(heroes, start=1):
+            character_id = int(hero.get("key") or hero.get("characterNum") or 0)
+            character = character_map.get(character_id, {})
+            plays = int(hero.get("plays") or hero.get("play") or 0)
+            hero["name"] = character.get("name") or f"角色 {character_id}"
+            hero["imageUrl"] = character.get("imageUrl")
+            hero["poolRank"] = index
+            hero["winRate"] = self._rate(hero.get("win"), plays)
+            hero["usagePercent"] = f"{float(hero.get('usageRate') or 0) * 100:.1f}%"
+        return heroes
+
+    @staticmethod
+    def _hero_pool_section(heroes: list[dict[str, Any]]) -> Mapping[str, Any]:
+        return {"title": "常用实验体 / 英雄池", "type": "hero-pool", "items": heroes}
 
     async def _matches_with_names(
         self, nickname: str, *, count: int
@@ -469,23 +603,34 @@ class ERBSService:
         item_map = item_map or {}
         character = character_map.get(match.character_id, {})
         character_name = character.get("name") or f"角色 {match.character_id}"
+        equipment_items = [
+            {
+                "itemId": item_id,
+                "name": item_map.get(item_id, {}).get("name") or f"Item {item_id}",
+                "imageUrl": item_map.get(item_id, {}).get("imageUrl"),
+                "grade": item_map.get(item_id, {}).get("grade") or "Common",
+            }
+            for item_id in match.equipment[:5]
+        ]
         return {
+            "layout": "match",
             "name": f"#{match.rank} · {character_name}",
+            "characterName": character_name,
+            "rank": match.rank,
             "imageUrl": character.get("imageUrl"),
             "gameId": match.game_id,
             "characterId": match.character_id,
             "skinCode": match.skin_code,
             "kills": match.kills,
             "assists": match.assists,
+            "deaths": match.deaths,
             "teamKills": match.team_kills,
             "damage": match.damage,
             "mmrGain": match.mmr_gain,
             "mmrAfter": match.mmr_after,
             "routeId": match.route_id or "Private",
-            "equipment": " · ".join(
-                str(item_map.get(item_id, {}).get("name") or f"Item {item_id}")
-                for item_id in match.equipment
-            ),
+            "equipment": " · ".join(str(item["name"]) for item in equipment_items),
+            "equipmentItems": equipment_items,
         }
 
     @staticmethod
