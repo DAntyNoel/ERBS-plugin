@@ -8,8 +8,10 @@ from html import escape
 from pathlib import Path
 from typing import Any, Literal
 
+from .cache import QueryCacheDatabase, annotate_query_payload, query_cache_spec
 from .config import ERBSConfig
 from .models import CardPayload
+from .radar import RadarDimensionScore, RadarProfile, build_radar_section
 from .rendering import HtmlCardRenderer
 
 
@@ -47,6 +49,29 @@ _KARLA_CHARACTER_IMAGE = "asset://CharProfile_Karla_S000.png"
 _SUN_ITEM_IMAGE = "asset://ItemIcon_130503.png"
 _ELVEN_DRESS_ITEM_IMAGE = "asset://ItemIcon_202516.png"
 _WHITE_NIGHT_CROWN_ITEM_IMAGE = "asset://ItemIcon_201536.png"
+_PLACEMENT_PREVIEW_RANKS = (6, 3, 5, 2, 8, 4, 8, 1, 6, 7, 3, 4, 2, 3, 4, 4, 7, 1, 7, 3)
+_MMR_PREVIEW_VALUES = (
+    7908,
+    7931,
+    7916,
+    7968,
+    7994,
+    7979,
+    8017,
+    8052,
+    8038,
+    8086,
+    8112,
+    8095,
+    8139,
+    8176,
+    8154,
+    8201,
+    8240,
+    8218,
+    8267,
+    8312,
+)
 DEFAULT_DEBUG_PLAYERS = ("B站丨咕咕禽OC", "Preme", "페이블")
 _PRIMARY_PLAYER, _SECONDARY_PLAYER, _TERTIARY_PLAYER = DEFAULT_DEBUG_PLAYERS
 
@@ -56,6 +81,7 @@ DEFAULT_DEBUG_QUERIES = (
     DebugQuery("stats", (_PRIMARY_PLAYER,)),
     DebugQuery("matches", (_PRIMARY_PLAYER,), count=5),
     DebugQuery("recent", (_PRIMARY_PLAYER,)),
+    DebugQuery("radar", (_PRIMARY_PLAYER,), count=20),
     DebugQuery("characters", (_PRIMARY_PLAYER,)),
     DebugQuery("skins", (_PRIMARY_PLAYER,)),
     DebugQuery("teammates", (_PRIMARY_PLAYER,)),
@@ -69,7 +95,6 @@ DEFAULT_DEBUG_QUERIES = (
     DebugQuery("item", ("烈阳",)),
     DebugQuery("routes", ("艾玛",), weapon="Arcana"),
 )
-
 
 def _card(
     operation: str,
@@ -92,6 +117,65 @@ def _card(
     )
 
 
+def _mmr_preview_section() -> dict[str, object]:
+    return {
+        "title": "段位分",
+        "type": "mmr-chart",
+        "chartMin": 7800,
+        "chartMax": 8400,
+        "ticks": list(range(7800, 8401, 100)),
+        "startMmr": _MMR_PREVIEW_VALUES[0] - 18,
+        "currentMmr": _MMR_PREVIEW_VALUES[-1],
+        "netChange": _MMR_PREVIEW_VALUES[-1] - (_MMR_PREVIEW_VALUES[0] - 18),
+        "peakMmr": max(_MMR_PREVIEW_VALUES),
+        "items": [
+            {
+                "gameId": index,
+                "mmr": mmr,
+                "gain": mmr - _MMR_PREVIEW_VALUES[index - 2] if index > 1 else 18,
+            }
+            for index, mmr in enumerate(_MMR_PREVIEW_VALUES, start=1)
+        ],
+    }
+
+
+def _radar_preview_section(*, compact: bool = False) -> dict[str, object]:
+    values = (
+        ("aggression", "进攻性", 78),
+        ("pressure", "承压性", 56),
+        ("teamwork", "团队参与", 84),
+        ("support", "控制支援", 63),
+        ("development", "发育运营", 71),
+        ("vision", "视野控图", 88),
+        ("investment", "资源投入", 67),
+        ("stability", "稳健性", 59),
+    )
+    profile = RadarProfile(
+        nickname=_PRIMARY_PLAYER,
+        sample_size=20,
+        total_minutes=408.0,
+        confidence="high",
+        cached=False,
+        calibration_version="style-v1",
+        dimensions=tuple(
+            RadarDimensionScore(
+                key=key,
+                label=label,
+                description=f"{label}风格倾向",
+                score=score,
+                raw_score=float(score),
+                coverage=1.0,
+                components=(),
+            )
+            for key, label, score in values
+        ),
+    )
+    section = dict(build_radar_section(profile))
+    if compact:
+        section.update({"title": "实战风格", "layout": "half", "compact": True})
+    return section
+
+
 CARD_PREVIEWS = (
     _card(
         "overview",
@@ -110,20 +194,29 @@ CARD_PREVIEWS = (
                     {"label": "击杀", "value": 918},
                     {"label": "助攻", "value": 1634},
                 ],
+                "radar": _radar_preview_section(compact=True),
             },
             {
                 "title": "当前段位",
-                "type": "stats",
+                "type": "rank",
+                "layout": "half",
+                "tierId": 7,
+                "tierName": "半神",
+                "imageUrl": "//cdn.dak.gg/assets/er/images/rank/full/7.png",
                 "items": [
                     {"label": "MMR", "value": 8123},
-                    {"label": "Tier ID", "value": 9},
+                    {"label": "段位", "value": "半神"},
                     {"label": "小段", "value": 1},
                     {"label": "小段 RP", "value": 83},
                 ],
             },
             {
                 "title": "最近 20 场摘要",
-                "type": "stats",
+                "type": "recent-summary",
+                "layout": "half",
+                "characterId": 19,
+                "characterName": "艾玛",
+                "imageUrl": _EMMA_CHARACTER_IMAGE,
                 "items": [
                     {"label": "场次", "value": 20},
                     {"label": "胜场", "value": 4},
@@ -131,12 +224,14 @@ CARD_PREVIEWS = (
                     {"label": "平均排名", "value": "#3.2"},
                 ],
             },
+            _mmr_preview_section(),
             {
                 "title": "名次走势",
                 "type": "placements",
+                "maxRank": 8,
                 "items": [
                     {"rank": rank, "victory": rank == 1, "podium": rank <= 3}
-                    for rank in (1, 2, 6, 3, 4, 5, 2, 1, 7, 3)
+                    for rank in _PLACEMENT_PREVIEW_RANKS
                 ],
             },
             {
@@ -177,10 +272,13 @@ CARD_PREVIEWS = (
         (
             {
                 "title": "当前段位",
-                "type": "stats",
+                "type": "rank",
+                "tierId": 7,
+                "tierName": "半神",
+                "imageUrl": "//cdn.dak.gg/assets/er/images/rank/full/7.png",
                 "items": [
                     {"label": "MMR", "value": 8123},
-                    {"label": "Tier ID", "value": 9},
+                    {"label": "段位", "value": "半神"},
                     {"label": "小段", "value": 1},
                     {"label": "小段 RP", "value": 83},
                 ],
@@ -244,7 +342,10 @@ CARD_PREVIEWS = (
         (
             {
                 "title": "最近 20 场摘要",
-                "type": "stats",
+                "type": "recent-summary",
+                "characterId": 19,
+                "characterName": "艾玛",
+                "imageUrl": _EMMA_CHARACTER_IMAGE,
                 "items": [
                     {"label": "场次", "value": 20},
                     {"label": "胜场", "value": 4},
@@ -252,16 +353,24 @@ CARD_PREVIEWS = (
                     {"label": "平均排名", "value": "#3.2"},
                 ],
             },
+            _mmr_preview_section(),
             {
                 "title": "名次走势",
                 "type": "placements",
+                "maxRank": 8,
                 "items": [
                     {"rank": rank, "victory": rank == 1, "podium": rank <= 3}
-                    for rank in (1, 2, 6, 3, 4, 5, 2, 1, 7, 3)
+                    for rank in _PLACEMENT_PREVIEW_RANKS
                 ],
             },
         ),
         kind="matches",
+    ),
+    _card(
+        "radar",
+        "排位风格",
+        (_radar_preview_section(),),
+        kind="radar",
     ),
     _card(
         "characters",
@@ -546,7 +655,7 @@ def _quoted(value: str) -> str:
 
 def _debug_query_command(query: DebugQuery) -> str:
     parts = ["erbs", query.operation, *query.arguments]
-    if query.operation == "matches":
+    if query.operation in {"matches", "radar"}:
         parts.extend(("--count", str(query.count)))
     if query.operation == "leaderboard":
         parts.extend(("--page", str(query.page)))
@@ -694,6 +803,7 @@ async def render_card_previews(
     output_directory: str | Path,
     *,
     missing_only: bool = False,
+    refresh_data: bool = False,
     config: ERBSConfig | None = None,
     renderer: HtmlCardRenderer | None = None,
     payload_provider: Callable[[DebugQuery], Awaitable[CardPayload]] | None = None,
@@ -721,14 +831,18 @@ async def render_card_previews(
     active_config = config or ERBSConfig()
     owned_renderer = renderer is None
     active_renderer = renderer or HtmlCardRenderer(active_config)
+    query_database = QueryCacheDatabase(
+        active_config.private_database_path,
+        max_entries=active_config.query_cache_max_entries,
+    )
     client: AsyncERBSClient | None = None
     if payload_provider is None:
-        client = AsyncERBSClient(active_config)
-        service = ERBSService(client)
-
         async def load_payload(query: DebugQuery) -> CardPayload:
+            nonlocal client
+            if client is None:
+                client = AsyncERBSClient(active_config)
             return await _payload_for(
-                service,
+                ERBSService(client),
                 query.operation,
                 query.arguments,
                 count=query.count,
@@ -745,7 +859,24 @@ async def render_card_previews(
     images: list[Path] = []
     try:
         for query in queries_to_render:
-            payload = await active_payload_provider(query)
+            spec = query_cache_spec(
+                query.operation,
+                query.arguments,
+                api_base_url=active_config.api_base_url,
+                language=active_config.language,
+                count=query.count,
+                page=query.page,
+                season=query.season,
+                weapon=query.weapon,
+            )
+            cache_ttl = active_config.query_cache_ttl(query.operation)
+            payload = None
+            if not refresh_data and cache_ttl > 0:
+                payload = await query_database.get(spec)
+            if payload is None:
+                payload = await active_payload_provider(query)
+                payload = annotate_query_payload(payload)
+                await query_database.set(spec, payload, ttl=cache_ttl)
             image_path = destination / f"{query.operation}.png"
             image_path.write_bytes(await active_renderer.render(payload))
             images.append(image_path)
@@ -777,6 +908,7 @@ async def render_query_preview(
     operation: str,
     *arguments: str,
     output_directory: str | Path,
+    refresh_data: bool = False,
     config: ERBSConfig | None = None,
     renderer: HtmlCardRenderer | None = None,
     gallery_payload_provider: Callable[[DebugQuery], Awaitable[CardPayload]] | None = None,
@@ -794,15 +926,16 @@ async def render_query_preview(
     destination = Path(output_directory).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     active_config = config or ERBSConfig()
-    spec = {
-        "operation": operation,
-        "arguments": list(arguments),
-        "count": count,
-        "page": page,
-        "season": season,
-        "weapon": weapon,
-        "language": active_config.language,
-    }
+    spec = query_cache_spec(
+        operation,
+        arguments,
+        api_base_url=active_config.api_base_url,
+        language=active_config.language,
+        count=count,
+        page=page,
+        season=season,
+        weapon=weapon,
+    )
     digest = hashlib.sha256(
         json.dumps(spec, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()[:12]
@@ -810,17 +943,29 @@ async def render_query_preview(
 
     owned_renderer = renderer is None
     active_renderer = renderer or HtmlCardRenderer(active_config)
-    client = AsyncERBSClient(active_config)
+    query_database = QueryCacheDatabase(
+        active_config.private_database_path,
+        max_entries=active_config.query_cache_max_entries,
+    )
+    cache_ttl = active_config.query_cache_ttl(operation)
+    client: AsyncERBSClient | None = None
     try:
-        payload = await _payload_for(
-            ERBSService(client),
-            operation,
-            arguments,
-            count=count,
-            page=page,
-            season=season,
-            weapon=weapon,
-        )
+        payload = None
+        if not refresh_data and cache_ttl > 0:
+            payload = await query_database.get(spec)
+        if payload is None:
+            client = AsyncERBSClient(active_config)
+            payload = await _payload_for(
+                ERBSService(client),
+                operation,
+                arguments,
+                count=count,
+                page=page,
+                season=season,
+                weapon=weapon,
+            )
+            payload = annotate_query_payload(payload)
+            await query_database.set(spec, payload, ttl=cache_ttl)
         result = await _render_output(
             payload,
             format=format,
@@ -843,7 +988,8 @@ async def render_query_preview(
         )
         image_path.write_bytes(image)
     finally:
-        await client.aclose()
+        if client is not None:
+            await client.aclose()
         if owned_renderer:
             await active_renderer.close()
 

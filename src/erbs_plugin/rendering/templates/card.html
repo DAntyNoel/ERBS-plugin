@@ -7,6 +7,7 @@
 <body style="--scale: {{ scale }}">
   <main id="container" class="card card-{{ card.kind }}">
     <div class="backdrop-field" aria-hidden="true"></div>
+    <img class="emblem-watermark" src="{{ theme.player_emblem_background }}" alt="" aria-hidden="true">
     <img class="logo-watermark" src="{{ theme.logo }}" alt="" aria-hidden="true">
     <header class="hero">
       <div class="hero-topline">
@@ -34,9 +35,29 @@
     </header>
     <div class="content">
       {% for section in card.sections %}
-      <section class="panel panel-{{ section.type }}">
+      <section class="panel panel-{{ section.type }}{% if section.get('layout') %} panel-layout-{{ section.layout }}{% endif %}">
         <h2><i></i><span>{{ section.title }}</span><b>0{{ loop.index }}</b></h2>
-        {% if section.type == "stats" %}
+        {% if section.type == "rank" or section.type == "recent-summary" %}
+        <div class="rank-layout{% if not section.get('imageUrl') %} rank-layout-no-emblem{% endif %}">
+          {% if section.get('imageUrl') %}
+          <div class="rank-emblem{% if section.type == 'recent-summary' %} recent-character{% endif %}" aria-label="{{ section.get('characterName') or '当前段位徽章' }}">
+            <img src="{{ section.imageUrl }}" alt="{{ section.get('characterName') or '当前段位徽章' }}">
+          </div>
+          {% endif %}
+          <div class="stats-grid rank-stats-grid">
+            {% for item in section['items'] %}
+            <div class="stat">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <i aria-hidden="true"></i>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% elif section.type == "stats" %}
+        {% if section.get('radar') %}
+        <div class="overview-season-layout">
+        {% endif %}
         <div class="stats-grid">
           {% for item in section['items'] %}
           <div class="stat">
@@ -46,17 +67,204 @@
           </div>
           {% endfor %}
         </div>
+        {% if section.get('radar') %}
+        {% set overview_radar = section.radar %}
+        <div class="overview-radar">
+          <svg viewBox="45 10 350 350" role="img" aria-label="玩家八维实战风格雷达图">
+            <defs>
+              <linearGradient id="overview-radar-fill" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#5effdc" stop-opacity=".42"></stop>
+                <stop offset="55%" stop-color="#39cfd2" stop-opacity=".28"></stop>
+                <stop offset="100%" stop-color="#8b68f2" stop-opacity=".34"></stop>
+              </linearGradient>
+              <filter id="overview-radar-glow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="2.2" result="blur"></feGaussianBlur>
+                <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+              </filter>
+            </defs>
+            {% for ring in overview_radar.rings %}
+            <polygon class="radar-ring{% if ring.value == 100 %} radar-ring-outer{% endif %}" points="{{ ring.points }}"></polygon>
+            {% endfor %}
+            {% for axis in overview_radar.axes %}
+            <line class="radar-axis" x1="{{ overview_radar.centerX }}" y1="{{ overview_radar.centerY }}" x2="{{ axis.outerX }}" y2="{{ axis.outerY }}"></line>
+            {% endfor %}
+            <polygon class="overview-radar-score-halo" points="{{ overview_radar.scorePoints }}"></polygon>
+            <polygon class="overview-radar-score-area" filter="url(#overview-radar-glow)" points="{{ overview_radar.scorePoints }}"></polygon>
+            {% for axis in overview_radar.axes %}
+            <g class="radar-score-point">
+              <title>{{ axis.label }}：{{ axis.score }} · {{ axis.description }}</title>
+              <circle cx="{{ axis.scoreX }}" cy="{{ axis.scoreY }}" r="4.5"></circle>
+            </g>
+            <text class="radar-axis-label" x="{{ axis.compactLabelX }}" y="{{ axis.labelY }}" text-anchor="{{ axis.compactAnchor }}">
+              <tspan>{{ axis.label }}</tspan>
+            </text>
+            {% endfor %}
+          </svg>
+        </div>
+        </div>
+        {% endif %}
         {% elif section.type == "placements" %}
-        <div class="placement-track">
-          {% for item in section['items'] %}
-          <div class="placement{% if item.get('victory') %} placement-win{% elif item.get('podium') %} placement-podium{% endif %}">
-            <small>{{ "%02d" | format(loop.index) }}</small>
-            <strong>#{{ item.rank }}</strong>
-            <i aria-hidden="true"></i>
+        {% set chart_items = section['items'] | reverse | list %}
+        {% set chart_count = chart_items | length %}
+        {% set chart_max_rank = section.get('maxRank', 8) %}
+        <div class="placement-chart">
+          {% if chart_items %}
+          <div class="placement-chart-meta">
+            <span>最近 {{ chart_count }} 场 · 较早 → 最近</span>
           </div>
+          <svg viewBox="0 0 680 196" role="img" aria-label="最近 {{ chart_count }} 场名次折线图，从较早场次到最近场次">
+            <defs>
+              <linearGradient id="placement-area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#38ebd4" stop-opacity=".24"></stop>
+                <stop offset="100%" stop-color="#38ebd4" stop-opacity="0"></stop>
+              </linearGradient>
+              <filter id="placement-glow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="2.4" result="blur"></feGaussianBlur>
+                <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+              </filter>
+            </defs>
+            <rect class="placement-chart-podium-zone" x="44" y="18" width="616" height="47"></rect>
+            {% for rank in range(1, chart_max_rank + 1) %}
+            {% set grid_y = 18 + (rank - 1) * 132 / (chart_max_rank - 1) %}
+            <line class="placement-chart-grid{% if rank <= 3 %} placement-chart-grid-podium{% endif %}" x1="44" y1="{{ grid_y }}" x2="660" y2="{{ grid_y }}"></line>
+            <text class="placement-chart-rank-label{% if rank <= 3 %} placement-chart-rank-label-podium{% endif %}" x="31" y="{{ grid_y + 4 }}">#{{ rank }}</text>
+            {% endfor %}
+            {% if chart_count > 1 %}
+            <polygon class="placement-chart-area" points="44,150 {% for item in chart_items %}{{ 44 + loop.index0 * 616 / (chart_count - 1) }},{{ 18 + (item.rank - 1) * 132 / (chart_max_rank - 1) }} {% endfor %}660,150"></polygon>
+            {% endif %}
+            <polyline class="placement-chart-line" filter="url(#placement-glow)" points="{% for item in chart_items %}{{ 352 if chart_count == 1 else 44 + loop.index0 * 616 / (chart_count - 1) }},{{ 18 + (item.rank - 1) * 132 / (chart_max_rank - 1) }} {% endfor %}"></polyline>
+            {% for item in chart_items %}
+            {% set point_x = 352 if chart_count == 1 else 44 + loop.index0 * 616 / (chart_count - 1) %}
+            {% set point_y = 18 + (item.rank - 1) * 132 / (chart_max_rank - 1) %}
+            <g class="placement-chart-point{% if item.get('victory') %} placement-chart-point-win{% elif item.get('podium') %} placement-chart-point-podium{% endif %}{% if loop.last %} placement-chart-point-current{% endif %}">
+              <circle cx="{{ point_x }}" cy="{{ point_y }}" r="8"></circle>
+              <text x="{{ point_x }}" y="{{ point_y + 3.5 }}">{{ item.rank }}</text>
+            </g>
+            {% endfor %}
+            <text class="placement-chart-time-label" x="44" y="181">较早</text>
+            <text class="placement-chart-time-label placement-chart-time-label-current" x="660" y="181" text-anchor="end">最近</text>
           {% else %}
           <div class="empty">暂无记录</div>
-          {% endfor %}
+          {% endif %}
+        </div>
+        {% elif section.type == "mmr-chart" %}
+        {% set chart_items = section['items'] %}
+        {% set chart_count = chart_items | length %}
+        {% set chart_span = section.chartMax - section.chartMin %}
+        <div class="mmr-chart">
+          <div class="mmr-chart-summary">
+            <div class="mmr-chart-current">
+              <span>CURRENT MMR</span>
+              <strong>{{ section.currentMmr }}</strong>
+            </div>
+            <div class="mmr-chart-metrics">
+              <span><small>场次</small><b>{{ chart_count }}</b></span>
+              <span><small>净变化</small><b class="{% if section.netChange > 0 %}gain-positive{% elif section.netChange < 0 %}gain-negative{% endif %}">{% if section.netChange > 0 %}+{% endif %}{{ section.netChange }}</b></span>
+              <span><small>区间峰值</small><b>{{ section.peakMmr }}</b></span>
+            </div>
+          </div>
+          <div class="mmr-chart-meta">
+            <span>最近 {{ chart_count }} 场 · 较早 → 最近</span>
+          </div>
+          <svg viewBox="0 0 680 222" role="img" aria-label="最近 {{ chart_count }} 场段位分变化曲线，从较早场次到最近场次">
+            <defs>
+              <linearGradient id="mmr-area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#4ff0c2" stop-opacity=".28"></stop>
+                <stop offset="100%" stop-color="#4ff0c2" stop-opacity="0"></stop>
+              </linearGradient>
+              <filter id="mmr-glow" x="-30%" y="-30%" width="160%" height="160%">
+                <feGaussianBlur stdDeviation="2.2" result="blur"></feGaussianBlur>
+                <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+              </filter>
+            </defs>
+            {% for tick in section.ticks %}
+            {% set tick_y = 24 + (section.chartMax - tick) * 146 / chart_span %}
+            <line class="mmr-chart-grid" x1="58" y1="{{ tick_y }}" x2="660" y2="{{ tick_y }}"></line>
+            <text class="mmr-chart-axis-label" x="48" y="{{ tick_y + 4 }}">{{ tick }}</text>
+            {% endfor %}
+            {% set start_y = 24 + (section.chartMax - section.startMmr) * 146 / chart_span %}
+            <polygon class="mmr-chart-area" points="58,170 58,{{ start_y }} {% for item in chart_items %}{{ 58 + loop.index * 602 / chart_count }},{{ 24 + (section.chartMax - item.mmr) * 146 / chart_span }} {% endfor %}660,170"></polygon>
+            <polyline class="mmr-chart-line" filter="url(#mmr-glow)" points="58,{{ start_y }} {% for item in chart_items %}{{ 58 + loop.index * 602 / chart_count }},{{ 24 + (section.chartMax - item.mmr) * 146 / chart_span }} {% endfor %}"></polyline>
+            <g class="mmr-chart-point mmr-chart-point-baseline">
+              <title>起始 {{ section.startMmr }} MMR</title>
+              <circle cx="58" cy="{{ start_y }}" r="3.5"></circle>
+            </g>
+            <text class="mmr-chart-value" x="58" y="{{ start_y - 10 }}">{{ section.startMmr }}</text>
+            {% for item in chart_items %}
+            {% set point_x = 58 + loop.index * 602 / chart_count %}
+            {% set point_y = 24 + (section.chartMax - item.mmr) * 146 / chart_span %}
+            <g class="mmr-chart-point{% if item.gain > 0 %} mmr-chart-point-gain{% elif item.gain < 0 %} mmr-chart-point-loss{% endif %}{% if loop.last %} mmr-chart-point-current{% endif %}">
+              <title>{{ item.mmr }} MMR（{% if item.gain > 0 %}+{% endif %}{{ item.gain }}）</title>
+              <circle cx="{{ point_x }}" cy="{{ point_y }}" r="{% if loop.last %}6{% else %}3.5{% endif %}"></circle>
+            </g>
+            {% if loop.last %}
+            <text class="mmr-chart-value mmr-chart-value-current" x="{{ point_x }}" y="{{ point_y - 10 }}" text-anchor="end">{{ item.mmr }}</text>
+            {% endif %}
+            {% endfor %}
+            <text class="mmr-chart-time-label" x="58" y="205">较早</text>
+            <text class="mmr-chart-time-label mmr-chart-time-label-current" x="660" y="205" text-anchor="end">最近</text>
+          </svg>
+        </div>
+        {% elif section.type == "radar" %}
+        <div class="radar-layout{% if section.get('compact') %} radar-layout-compact{% endif %}">
+          <div class="radar-chart">
+            <svg viewBox="{% if section.get('compact') %}40 0 360 370{% else %}0 0 440 370{% endif %}" role="img" aria-label="玩家八维实战风格雷达图">
+              <defs>
+                <linearGradient id="radar-fill" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#5effdc" stop-opacity=".42"></stop>
+                  <stop offset="55%" stop-color="#39cfd2" stop-opacity=".28"></stop>
+                  <stop offset="100%" stop-color="#8b68f2" stop-opacity=".34"></stop>
+                </linearGradient>
+                <filter id="radar-glow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="2.2" result="blur"></feGaussianBlur>
+                  <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+                </filter>
+              </defs>
+              {% for ring in section.rings %}
+              <polygon class="radar-ring{% if ring.value == 100 %} radar-ring-outer{% endif %}" points="{{ ring.points }}"></polygon>
+              {% endfor %}
+              {% for axis in section.axes %}
+              <line class="radar-axis" x1="{{ section.centerX }}" y1="{{ section.centerY }}" x2="{{ axis.outerX }}" y2="{{ axis.outerY }}"></line>
+              {% endfor %}
+              <polygon class="radar-score-halo" points="{{ section.scorePoints }}"></polygon>
+              <polygon class="radar-score-area" filter="url(#radar-glow)" points="{{ section.scorePoints }}"></polygon>
+              {% for axis in section.axes %}
+              <g class="radar-score-point">
+                <title>{{ axis.label }}：{{ axis.score }} · {{ axis.description }}</title>
+                <circle cx="{{ axis.scoreX }}" cy="{{ axis.scoreY }}" r="4.5"></circle>
+              </g>
+              <text class="radar-axis-label" x="{{ axis.compactLabelX if section.get('compact') else axis.labelX }}" y="{{ axis.labelY }}" text-anchor="{{ axis.compactAnchor if section.get('compact') else axis.anchor }}">
+                <tspan>{{ axis.label }}</tspan>
+              </text>
+              {% endfor %}
+            </svg>
+            {% if not section.get('compact') %}<p>倾向强度而非能力评分 · 50 为当前校准中点</p>{% endif %}
+          </div>
+          {% if not section.get('compact') %}
+          <aside class="radar-summary">
+            <div class="radar-summary-head">
+              <span>STYLE PROFILE</span>
+              <strong>{{ section.sampleSize }}<small>场样本</small></strong>
+              <em class="confidence-{{ section.confidence }}">置信度 {{ section.confidenceLabel }}</em>
+            </div>
+            <div class="radar-top-styles">
+              <span>突出风格</span>
+              {% for style in section.topStyles %}
+              <div><b>0{{ loop.index }}</b><strong>{{ style.label }}</strong><em>{{ style.score }}</em></div>
+              {% endfor %}
+            </div>
+            <div class="radar-score-list">
+              {% for item in section['items'] %}
+              <div>
+                <span>{{ item.label }}</span>
+                <i><b style="width: {{ item.score }}%"></b></i>
+                <strong>{{ item.score }}</strong>
+              </div>
+              {% endfor %}
+            </div>
+            <p>{{ section.totalMinutes }} 分钟有效数据 · {{ section.calibrationVersion }}</p>
+          </aside>
+          {% endif %}
         </div>
         {% elif section.type == "hero-pool" %}
         <div class="hero-pool-grid">
@@ -108,7 +316,6 @@
                 <div class="match-metric metric-damage"><span>伤害</span><strong>{{ item.damage }}</strong></div>
               </div>
               <div class="match-equipment">
-                <span class="equipment-label">EQUIPMENT // 05</span>
                 <div class="equipment-slots">
                   {% for equipment in item.get('equipmentItems', []) %}
                   <figure class="equipment-slot grade-{{ equipment.get('grade', 'Common') | lower }}">
@@ -145,10 +352,9 @@
       {% endfor %}
     </div>
     <footer>
-      <span class="footer-brand">ERBS // TACTICAL RECORD</span>
-      <span>DATA {{ card.footer.get('source', 'DAK.GG') }}</span>
-      <span class="status"><i></i>{% if card.footer.get('cached') %}CACHE{% else %}LIVE{% endif %}</span>
-      {% if card.footer.get('updatedAt') %}<span>{{ card.footer.get('updatedAt') }}</span>{% endif %}
+      <span class="footer-brand">DATA {{ card.footer.get('source', 'DAK.GG') }} @DANTYNOEL</span>
+      <span class="status"><i></i>{% if card.footer.get('cached') %}缓存数据 更新于{% else %}实时数据{% endif %}</span>
+      {% if card.footer.get('displayUpdatedAt') %}<span>{{ card.footer.displayUpdatedAt }}</span>{% endif %}
     </footer>
   </main>
 </body>

@@ -8,6 +8,7 @@ import pytest
 
 from erbs_plugin import api as api_module
 from erbs_plugin import cli as cli_module
+from erbs_plugin.config import ERBSConfig
 from erbs_plugin.debug import (
     CARD_PREVIEWS,
     DEFAULT_DEBUG_PLAYERS,
@@ -25,6 +26,7 @@ EXPECTED_OPERATIONS = (
     "stats",
     "matches",
     "recent",
+    "radar",
     "characters",
     "skins",
     "teammates",
@@ -53,6 +55,10 @@ class FakeRenderer:
         self.close_calls += 1
 
 
+def _private_config(tmp_path: Path) -> ERBSConfig:
+    return ERBSConfig(private_database_path=tmp_path / "private-query-cache.sqlite3")
+
+
 def test_card_previews_cover_every_query_command() -> None:
     assert preview_operations() == EXPECTED_OPERATIONS
 
@@ -64,6 +70,8 @@ def test_card_previews_use_default_debug_players() -> None:
     assert queries["overview"].arguments == (primary,)
     assert queries["matches"].arguments == (primary,)
     assert queries["matches"].count == 5
+    assert queries["radar"].arguments == (primary,)
+    assert queries["radar"].count == 20
     assert queries["multi"].arguments == (primary, secondary, tertiary)
     assert queries["compare"].arguments == (primary, secondary)
     assert queries["character"].arguments == ("艾玛",)
@@ -86,6 +94,69 @@ def test_default_previews_only_use_downloaded_image_assets() -> None:
     assert not any(image_url.startswith("data:image/svg+xml") for image_url in image_urls)
 
 
+def test_recent_previews_show_twenty_placements_in_one_chart() -> None:
+    previews = {preview.operation: preview for preview in CARD_PREVIEWS}
+    for operation in ("overview", "recent"):
+        trend = next(
+            section
+            for section in previews[operation].payload.sections
+            if section["title"] == "名次走势"
+        )
+        assert trend["type"] == "placements"
+        assert trend["maxRank"] == 8
+        assert len(trend["items"]) == 20
+
+
+def test_radar_preview_contains_eight_style_dimensions() -> None:
+    preview = next(preview for preview in CARD_PREVIEWS if preview.operation == "radar")
+    section = preview.payload.sections[0]
+
+    assert section["type"] == "radar"
+    assert len(section["axes"]) == 8
+    assert len(section["items"]) == 8
+    assert section["sampleSize"] == 20
+
+
+def test_overview_preview_embeds_compact_radar_in_season_summary() -> None:
+    preview = next(preview for preview in CARD_PREVIEWS if preview.operation == "overview")
+    season = preview.payload.sections[0]
+    radar = season["radar"]
+
+    assert season["title"] == "赛季概览"
+    assert "layout" not in season
+    assert radar["type"] == "radar"
+    assert radar["compact"] is True
+
+
+def test_recent_previews_show_most_used_character_portrait() -> None:
+    previews = {preview.operation: preview for preview in CARD_PREVIEWS}
+    for operation in ("overview", "recent"):
+        summary = next(
+            section
+            for section in previews[operation].payload.sections
+            if section["title"] == "最近 20 场摘要"
+        )
+        assert summary["type"] == "recent-summary"
+        assert summary["characterName"] == "艾玛"
+        assert summary["imageUrl"] == "asset://CharProfile_Emma_S000.png"
+
+
+def test_recent_and_overview_previews_show_twenty_mmr_points() -> None:
+    previews = {preview.operation: preview for preview in CARD_PREVIEWS}
+    for operation in ("overview", "recent"):
+        trend = next(
+            section
+            for section in previews[operation].payload.sections
+            if section["type"] == "mmr-chart"
+        )
+        assert len(trend["items"]) == 20
+        assert trend["currentMmr"] == trend["items"][-1]["mmr"]
+
+    assert all(
+        section["type"] != "mmr-chart" for section in previews["matches"].payload.sections
+    )
+
+
 def test_parser_accepts_card_debug_command() -> None:
     args = cli_module.parser().parse_args(["debug", "cards", "--scale", "1.25"])
 
@@ -100,6 +171,19 @@ def test_parser_accepts_bare_debug_command() -> None:
     assert args.operation == "debug"
     assert args.debug_command is None
     assert args.output_directory == Path(".debug/cards")
+    assert args.refresh_data is False
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["debug", "--refresh-data"],
+        ["debug", "cards", "--refresh-data"],
+        ["debug", "overview", DEFAULT_DEBUG_PLAYERS[0], "--refresh-data"],
+    ],
+)
+def test_parser_accepts_debug_data_refresh(arguments: list[str]) -> None:
+    assert cli_module.parser().parse_args(arguments).refresh_data is True
 
 
 def test_only_option_is_removed() -> None:
@@ -133,6 +217,7 @@ async def test_render_card_previews_writes_gallery_and_manifest(tmp_path) -> Non
 
     build = await render_card_previews(
         tmp_path / "cards",
+        config=_private_config(tmp_path),
         renderer=renderer,
         payload_provider=fake_payload_provider,
     )
@@ -153,6 +238,97 @@ async def test_render_card_previews_writes_gallery_and_manifest(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_debug_query_cache_reuses_payloads_across_full_renders(tmp_path) -> None:
+    calls: list[DebugQuery] = []
+
+    async def fake_payload_provider(query: DebugQuery) -> CardPayload:
+        calls.append(query)
+        return CardPayload(kind="player", title=query.operation, subtitle="cached payload")
+
+    output_directory = tmp_path / "cards"
+    await render_card_previews(
+        output_directory,
+        config=_private_config(tmp_path),
+        renderer=FakeRenderer(),
+        payload_provider=fake_payload_provider,
+    )
+    first_call_count = len(calls)
+    await render_card_previews(
+        output_directory,
+        config=_private_config(tmp_path),
+        renderer=FakeRenderer(),
+        payload_provider=fake_payload_provider,
+    )
+
+    assert first_call_count == len(DEFAULT_DEBUG_QUERIES)
+    assert len(calls) == first_call_count
+    assert (tmp_path / "private-query-cache.sqlite3").is_file()
+
+
+@pytest.mark.asyncio
+async def test_debug_query_cache_can_be_explicitly_refreshed(tmp_path) -> None:
+    calls: list[DebugQuery] = []
+
+    async def fake_payload_provider(query: DebugQuery) -> CardPayload:
+        calls.append(query)
+        return CardPayload(kind="player", title=query.operation, subtitle="fresh payload")
+
+    output_directory = tmp_path / "cards"
+    await render_card_previews(
+        output_directory,
+        config=_private_config(tmp_path),
+        renderer=FakeRenderer(),
+        payload_provider=fake_payload_provider,
+    )
+    await render_card_previews(
+        output_directory,
+        refresh_data=True,
+        config=_private_config(tmp_path),
+        renderer=FakeRenderer(),
+        payload_provider=fake_payload_provider,
+    )
+
+    assert len(calls) == len(DEFAULT_DEBUG_QUERIES) * 2
+
+
+@pytest.mark.asyncio
+async def test_debug_query_cache_reuses_custom_query_payload(monkeypatch, tmp_path) -> None:
+    calls = 0
+    payload = CardPayload(kind="player", title="自定义玩家", subtitle="玩家综合资料")
+    gallery_payloads = {preview.operation: preview.payload for preview in CARD_PREVIEWS}
+
+    async def fake_payload(*args: object, **options: object) -> CardPayload:
+        nonlocal calls
+        calls += 1
+        return payload
+
+    async def fake_output(card: CardPayload, **options: object) -> str:
+        return '{"title":"自定义玩家"}'
+
+    async def fake_gallery_payload(query: DebugQuery) -> CardPayload:
+        return gallery_payloads.get(query.operation) or CardPayload(
+            kind="player",
+            title=query.operation,
+            subtitle="test payload",
+        )
+
+    monkeypatch.setattr(api_module, "_payload_for", fake_payload)
+    monkeypatch.setattr(api_module, "_render_output", fake_output)
+    output_directory = tmp_path / "cards"
+    for _ in range(2):
+        await render_query_preview(
+            "overview",
+            "自定义玩家",
+            output_directory=output_directory,
+            config=_private_config(tmp_path),
+            renderer=FakeRenderer(),
+            gallery_payload_provider=fake_gallery_payload,
+        )
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_live_query_returns_original_result_and_survives_full_refresh(
     monkeypatch, tmp_path
 ) -> None:
@@ -164,7 +340,9 @@ async def test_live_query_returns_original_result_and_survives_full_refresh(
         return payload
 
     async def fake_output(card: CardPayload, **options: object) -> str:
-        assert card is payload
+        assert card.title == payload.title
+        assert card.footer["cached"] is False
+        assert card.footer["updatedAt"]
         assert options["format"] == "json"
         return '{"title":"自定义玩家"}'
 
@@ -183,6 +361,7 @@ async def test_live_query_returns_original_result_and_survives_full_refresh(
         "overview",
         "自定义玩家",
         output_directory=tmp_path / "cards",
+        config=_private_config(tmp_path),
         renderer=FakeRenderer(),
         gallery_payload_provider=fake_gallery_payload,
     )
@@ -198,6 +377,7 @@ async def test_live_query_returns_original_result_and_survives_full_refresh(
 
     refreshed = await render_card_previews(
         tmp_path / "cards",
+        config=_private_config(tmp_path),
         renderer=FakeRenderer(),
         payload_provider=fake_gallery_payload,
     )

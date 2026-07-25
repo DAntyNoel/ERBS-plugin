@@ -6,6 +6,7 @@ import mimetypes
 import os
 import shutil
 from dataclasses import asdict
+from datetime import UTC, datetime, timedelta, timezone
 from functools import cache
 from importlib.resources import files
 from pathlib import Path
@@ -28,9 +29,37 @@ def _theme() -> dict[str, str]:
     return {
         "logo": _theme_asset("eternal-return-logo.png", "image/png"),
         "bot_avatar": _theme_asset("erbs-bot.gif", "image/gif"),
+        "player_emblem_background": _theme_asset(
+            "player-emblem-background.png", "image/png"
+        ),
         "font_semibold": _theme_asset("Rajdhani-SemiBold.ttf", "font/ttf"),
         "font_bold": _theme_asset("Rajdhani-Bold.ttf", "font/ttf"),
     }
+
+
+def _footer_display_time(value: Any, config: ERBSConfig) -> tuple[str, str] | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    offset_hours = config.render_timezone_offset_hours
+    fixed_timezone = timezone(
+        timedelta(hours=offset_hours),
+        name=config.render_timezone_name,
+    )
+    localized = parsed.astimezone(fixed_timezone)
+    offset_sign = "+" if offset_hours >= 0 else "-"
+    timezone_text = (
+        f"{config.render_timezone_name} GMT{offset_sign}{abs(offset_hours)}"
+    )
+    return f"{localized.month}月{localized.day}日 {localized:%H:%M:%S}", timezone_text
 
 
 class HtmlCardRenderer:
@@ -105,8 +134,14 @@ class HtmlCardRenderer:
         style_text = template_dir.joinpath("card.css").read_text(encoding="utf-8")
         env = Environment(autoescape=True, undefined=StrictUndefined)
         theme = _theme()
+        card = self._localize_images(asdict(payload))
+        footer = card.get("footer")
+        if isinstance(footer, dict):
+            display_time = _footer_display_time(footer.get("updatedAt"), self.config)
+            if display_time is not None:
+                footer["displayUpdatedAt"], footer["displayTimezone"] = display_time
         html = env.from_string(template_text).render(
-            card=self._localize_images(asdict(payload)),
+            card=card,
             style=env.from_string(style_text).render(theme=theme),
             scale=self.config.render_scale,
             theme=theme,
