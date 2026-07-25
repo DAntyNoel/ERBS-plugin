@@ -44,10 +44,17 @@ async def test_latest_match_and_equipment_names_match_dak_page() -> None:
     client = AsyncERBSClient(ERBSConfig(), transport=httpx.MockTransport(handler))
     try:
         card = await ERBSService(client).matches_card("B站丨咕咕禽OC", count=1)
+        recent = await ERBSService(client).recent_card("B站丨咕咕禽OC")
     finally:
         await client.aclose()
 
-    item = card.sections[0]["items"][0]
+    assert all(section["type"] != "mmr-chart" for section in card.sections)
+    trend = next(section for section in recent.sections if section["type"] == "mmr-chart")
+    item = next(section for section in card.sections if section["title"] == "战绩")["items"][0]
+    assert trend["startMmr"] == 8906
+    assert trend["currentMmr"] == 9096
+    assert trend["netChange"] == 190
+    assert trend["items"] == [{"gameId": 62884867, "mmr": 9096, "gain": 190}]
     assert item["name"] == "#1 · 夏洛特"
     assert item["teamKills"] == 28
     assert item["kills"] == 3

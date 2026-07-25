@@ -63,6 +63,7 @@ def _add_debug_commands(
     debug.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
     debug.add_argument("--browser-path", type=Path)
     debug.add_argument("--scale", type=float, default=1.0)
+    debug.add_argument("--refresh-data", action="store_true")
     commands = debug.add_subparsers(dest="debug_command")
     cards = commands.add_parser(
         "cards", help="run and render all default live commands (compatibility alias)"
@@ -70,12 +71,14 @@ def _add_debug_commands(
     cards.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
     cards.add_argument("--browser-path", type=Path)
     cards.add_argument("--scale", type=float, default=1.0)
+    cards.add_argument("--refresh-data", action="store_true")
 
     def add_query_options(command: argparse.ArgumentParser) -> None:
         _add_output_options(command)
         command.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
         command.add_argument("--asset-directory", type=Path)
         command.add_argument("--scale", type=float, default=1.0)
+        command.add_argument("--refresh-data", action="store_true")
 
     def add_player_command(name: str, help_text: str) -> argparse.ArgumentParser:
         command = commands.add_parser(name, help=help_text)
@@ -91,6 +94,8 @@ def _add_debug_commands(
     matches = add_player_command("matches", "render live recent matches")
     matches.add_argument("--count", type=int, default=5)
     add_player_command("recent", "render a live recent performance summary")
+    radar = add_player_command("radar", "render a live eight-dimension player style radar")
+    radar.add_argument("--count", type=int, default=20)
     add_player_command("characters", "render live player character statistics")
     add_player_command("teammates", "render live recent teammates")
     add_player_command("best-match", "render a live best recent match")
@@ -131,6 +136,8 @@ def parser() -> argparse.ArgumentParser:
     matches = _add_player_command(subparsers, "matches", "recent matches")
     matches.add_argument("--count", type=int, default=5)
     _add_player_command(subparsers, "recent", "recent performance summary")
+    radar = _add_player_command(subparsers, "radar", "eight-dimension player style radar")
+    radar.add_argument("--count", type=int, default=20)
     _add_player_command(subparsers, "characters", "player character statistics")
     _add_player_command(subparsers, "teammates", "recent teammates")
     _add_player_command(subparsers, "best-match", "best recent match")
@@ -213,6 +220,7 @@ async def run(args: argparse.Namespace) -> int:
             if args.debug_command in {None, "cards"}:
                 build = await render_card_previews(
                     args.output_directory,
+                    refresh_data=args.refresh_data,
                     config=ERBSConfig(browser_path=args.browser_path, render_scale=args.scale),
                 )
                 print(
@@ -230,6 +238,7 @@ async def run(args: argparse.Namespace) -> int:
                 args.debug_command,
                 *_debug_query_arguments(args),
                 output_directory=args.output_directory,
+                refresh_data=args.refresh_data,
                 config=_config(args),
                 format=args.format,
                 output=args.output,

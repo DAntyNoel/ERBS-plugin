@@ -15,6 +15,7 @@ from .api import (
     multi,
     player_overview,
     query,
+    radar,
     rank,
     recent,
     routes,
@@ -35,6 +36,13 @@ from .exceptions import (
     UpstreamUnavailable,
 )
 from .models import CardPayload, FetchMeta, MatchRecord, PlayerProfile
+from .radar import (
+    DEFAULT_SCORING_PROFILE,
+    RadarDataSource,
+    RadarProfile,
+    RadarScorer,
+    aggregate_radar_metrics,
+)
 from .rendering import HtmlCardRenderer, TextRenderer
 from .services import ERBSService
 
@@ -56,6 +64,9 @@ __all__ = [
     "PlayerProfile",
     "QueryOperation",
     "QueryOutput",
+    "RadarDataSource",
+    "RadarProfile",
+    "RadarScorer",
     "RateLimited",
     "RenderFailed",
     "TextRenderer",
@@ -72,12 +83,15 @@ __all__ = [
     "multi",
     "player_overview",
     "query",
+    "radar",
     "rank",
     "recent",
     "routes",
     "skins",
     "stats",
     "teammates",
+    "aggregate_radar_metrics",
+    "DEFAULT_SCORING_PROFILE",
 ]
 
 __version__ = "0.1.0"

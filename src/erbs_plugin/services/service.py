@@ -11,6 +11,22 @@ from ..analysis import ERBSAnalysisService
 from ..client import AsyncERBSClient
 from ..exceptions import InvalidQuery
 from ..models import CardPayload, MatchRecord, PlayerProfile
+from ..radar import RadarDataSource, RadarScorer, build_radar_section
+
+_MMR_CHART_MATCH_COUNT = 20
+_TIER_NAMES = {
+    0: "段位未鉴定",
+    1: "铁阎",
+    2: "铜魂",
+    3: "银烙",
+    4: "金魄",
+    5: "修罗",
+    6: "灭钻",
+    7: "半神",
+    8: "永恒",
+    63: "星陨",
+    66: "无瑕",
+}
 
 
 def _items_section(title: str, items: list[Mapping[str, Any]]) -> Mapping[str, Any]:
@@ -63,10 +79,11 @@ class ERBSService:
         return result
 
     async def player_overview(self, nickname: str) -> CardPayload:
-        profile, matches, metadata = await asyncio.gather(
+        profile, matches, metadata, radar_sample = await asyncio.gather(
             self.profile(nickname),
             self.matches(nickname, count=20),
             self.client.metadata("characters"),
+            RadarDataSource(self.client).fetch(nickname, count=20),
         )
         overview = profile.overview
         stats = [
@@ -83,16 +100,29 @@ class ERBSService:
             {"label": "助攻", "value": overview.get("playerAssistant", 0)},
         ]
         heroes = self._hero_pool_items(profile, metadata)
+        recent_sections = list(self._recent_sections(matches, metadata))
+        season_section: dict[str, Any] = {
+            "title": "赛季概览",
+            "type": "stats",
+            "items": stats,
+        }
+        overview_sections: list[Mapping[str, Any]] = [season_section]
+        if radar_sample.matches:
+            radar_profile = RadarScorer().score(radar_sample)
+            season_section["radar"] = {
+                **build_radar_section(radar_profile),
+                "compact": True,
+            }
+        rank_section = {**self._rank_section(profile), "layout": "half"}
+        recent_sections[0] = {**recent_sections[0], "layout": "half"}
+        overview_sections.extend(
+            (rank_section, *recent_sections, self._hero_pool_section(heroes))
+        )
         return CardPayload(
             kind="player",
             title=profile.nickname,
             subtitle="玩家综合资料",
-            sections=(
-                {"title": "赛季概览", "type": "stats", "items": stats},
-                self._rank_section(profile),
-                *self._recent_sections(matches),
-                self._hero_pool_section(heroes),
-            ),
+            sections=tuple(overview_sections),
             footer=self._footer(profile),
         )
 
@@ -130,7 +160,11 @@ class ERBSService:
         )
 
     async def matches_card(self, nickname: str, *, count: int = 5) -> CardPayload:
-        matches, character_map, item_map = await self._matches_with_names(nickname, count=count)
+        if not 1 <= count <= 20:
+            raise InvalidQuery("战绩数量必须在 1 到 20 之间")
+        matches, character_map, item_map = await self._matches_with_names(
+            nickname, count=count
+        )
         return CardPayload(
             kind="matches",
             title=nickname,
@@ -145,13 +179,29 @@ class ERBSService:
         )
 
     async def recent_card(self, nickname: str) -> CardPayload:
-        matches = await self.matches(nickname, count=20)
+        matches, metadata = await asyncio.gather(
+            self.matches(nickname, count=20),
+            self.client.metadata("characters"),
+        )
         return CardPayload(
             kind="matches",
             title=nickname,
             subtitle="近期状态",
-            sections=self._recent_sections(matches),
+            sections=self._recent_sections(matches, metadata),
             footer=self._plain_footer(),
+        )
+
+    async def radar_card(self, nickname: str, *, count: int = 20) -> CardPayload:
+        sample = await RadarDataSource(self.client).fetch(nickname, count=count)
+        if not sample.matches:
+            raise InvalidQuery("没有可用于风格雷达的排位三排记录")
+        profile = RadarScorer().score(sample)
+        return CardPayload(
+            kind="radar",
+            title=profile.nickname,
+            subtitle="排位风格",
+            sections=(build_radar_section(profile),),
+            footer=self._plain_footer(cached=profile.cached),
         )
 
     async def characters_card(self, nickname: str) -> CardPayload:
@@ -506,42 +556,127 @@ class ERBSService:
 
     @staticmethod
     def _rank_section(profile: PlayerProfile) -> Mapping[str, Any]:
-        return {
+        tier_name = _TIER_NAMES.get(profile.tier_id)
+        if tier_name is None and profile.tier_id is not None:
+            tier_name = f"Tier {profile.tier_id}"
+        section: dict[str, Any] = {
             "title": "当前段位",
-            "type": "stats",
+            "type": "rank",
+            "tierId": profile.tier_id,
+            "tierName": tier_name or "-",
             "items": [
                 {"label": "MMR", "value": profile.mmr},
-                {"label": "Tier ID", "value": profile.tier_id or "-"},
+                {"label": "段位", "value": tier_name or "-"},
                 {"label": "小段", "value": profile.tier_grade_id or "-"},
                 {"label": "小段 RP", "value": profile.tier_mmr or "-"},
             ],
         }
+        if profile.tier_id in {0, 1, 2, 3, 4, 5, 6, 7, 8, 63, 66}:
+            suffix = "?1" if profile.tier_id == 63 else ""
+            section["imageUrl"] = (
+                f"//cdn.dak.gg/assets/er/images/rank/full/{profile.tier_id}.png{suffix}"
+            )
+        return section
 
-    @staticmethod
-    def _recent_sections(matches: list[MatchRecord]) -> tuple[Mapping[str, Any], ...]:
+    @classmethod
+    def _recent_sections(
+        cls,
+        matches: list[MatchRecord],
+        metadata: Mapping[str, Any] | None = None,
+    ) -> tuple[Mapping[str, Any], ...]:
         wins = sum(item.victory for item in matches)
         top3 = sum(item.rank <= 3 for item in matches)
         avg_rank = sum(item.rank for item in matches) / len(matches) if matches else 0
-        return (
-            {
-                "title": "最近 20 场摘要",
-                "type": "stats",
-                "items": [
-                    {"label": "场次", "value": len(matches)},
-                    {"label": "胜场", "value": wins},
-                    {"label": "TOP 3", "value": top3},
-                    {"label": "平均排名", "value": f"#{avg_rank:.1f}" if matches else "-"},
-                ],
-            },
+        character_map = {
+            int(item["id"]): item
+            for item in (metadata or {}).get("characters") or ()
+            if isinstance(item, Mapping) and item.get("id") is not None
+        }
+        character_counts = Counter(item.character_id for item in matches if item.character_id)
+        most_used_id = character_counts.most_common(1)[0][0] if character_counts else None
+        most_used = character_map.get(most_used_id, {}) if most_used_id is not None else {}
+        summary: dict[str, Any] = {
+            "title": "最近 20 场摘要",
+            "type": "recent-summary",
+            "items": [
+                {"label": "场次", "value": len(matches)},
+                {"label": "胜场", "value": wins},
+                {"label": "TOP 3", "value": top3},
+                {"label": "平均排名", "value": f"#{avg_rank:.1f}" if matches else "-"},
+            ],
+        }
+        if most_used_id is not None:
+            summary.update(
+                {
+                    "characterId": most_used_id,
+                    "characterName": most_used.get("name") or f"角色 {most_used_id}",
+                    "imageUrl": most_used.get("imageUrl") or most_used.get("communityImageUrl"),
+                }
+            )
+        sections: list[Mapping[str, Any]] = [
+            summary,
+        ]
+        mmr_chart = cls._mmr_chart_section(matches)
+        if mmr_chart is not None:
+            sections.append(mmr_chart)
+        sections.append(
             {
                 "title": "名次走势",
                 "type": "placements",
+                "maxRank": 8,
                 "items": [
                     {"rank": item.rank, "victory": item.victory, "podium": item.rank <= 3}
                     for item in matches
                 ],
             },
         )
+        return tuple(sections)
+
+    @staticmethod
+    def _mmr_chart_section(matches: list[MatchRecord]) -> Mapping[str, Any] | None:
+        chart_matches = [
+            match for match in matches[:_MMR_CHART_MATCH_COUNT] if match.mmr_after > 0
+        ]
+        if not chart_matches:
+            return None
+
+        chronological = list(reversed(chart_matches))
+        start_mmr = chronological[0].mmr_after - chronological[0].mmr_gain
+        mmr_values = [start_mmr, *(match.mmr_after for match in chronological)]
+        minimum = min(mmr_values)
+        maximum = max(mmr_values)
+        span = maximum - minimum
+        rough_step = max(1, (span + 3) // 4)
+        magnitude = 10 ** max(0, len(str(rough_step)) - 1)
+        rough_factor = (rough_step + magnitude - 1) // magnitude
+        nice_factor = next(factor for factor in (1, 2, 5, 10) if rough_factor <= factor)
+        tick_step = nice_factor * magnitude
+        chart_min = minimum // tick_step * tick_step
+        chart_max = (maximum + tick_step - 1) // tick_step * tick_step
+        if chart_min == minimum:
+            chart_min -= tick_step
+        if chart_max == maximum:
+            chart_max += tick_step
+
+        return {
+            "title": "段位分",
+            "type": "mmr-chart",
+            "chartMin": chart_min,
+            "chartMax": chart_max,
+            "ticks": list(range(chart_min, chart_max + 1, tick_step)),
+            "startMmr": start_mmr,
+            "currentMmr": chronological[-1].mmr_after,
+            "netChange": chronological[-1].mmr_after - start_mmr,
+            "peakMmr": maximum,
+            "items": [
+                {
+                    "gameId": match.game_id,
+                    "mmr": match.mmr_after,
+                    "gain": match.mmr_gain,
+                }
+                for match in chronological
+            ],
+        }
 
     def _hero_pool_items(
         self,
@@ -638,7 +773,7 @@ class ERBSService:
         return {
             "source": "DAK.GG",
             "cached": profile.meta.cached,
-            "updatedAt": (
+            "sourceUpdatedAt": (
                 profile.meta.source_updated_at.isoformat()
                 if profile.meta.source_updated_at
                 else None

@@ -18,6 +18,8 @@ from erbs_plugin import PlayerNotFound, RenderFailed, UpstreamUnavailable
         ["stats", "player"],
         ["matches", "player", "--count", "10"],
         ["recent", "player"],
+        ["radar", "player", "--count", "30"],
+        ["debug", "radar", "player", "--count", "30"],
         ["characters", "player"],
         ["teammates", "player"],
         ["best-match", "player"],

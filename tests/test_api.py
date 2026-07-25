@@ -14,7 +14,7 @@ from erbs_plugin.models import CardPayload
 
 class FakeClient:
     def __init__(self) -> None:
-        self.config = ERBSConfig()
+        self.config = ERBSConfig(query_cache_enabled=False)
         self.close_calls = 0
 
     async def aclose(self) -> None:
@@ -55,6 +55,7 @@ class FakeService:
         ("stats", ("player",), {}, ("stats_card", ("player",), {"season": None})),
         ("matches", ("player",), {"count": 7}, ("matches_card", ("player",), {"count": 7})),
         ("recent", ("player",), {}, ("recent_card", ("player",), {})),
+        ("radar", ("player",), {}, ("radar_card", ("player",), {"count": 5})),
         ("characters", ("player",), {}, ("characters_card", ("player",), {})),
         ("skins", ("player",), {}, ("skins_card", ("player",), {})),
         ("teammates", ("player",), {}, ("teammates_card", ("player",), {})),
@@ -92,7 +93,11 @@ def test_query_dispatches_every_operation(
 
     result = asyncio.run(api_module.query(operation, *arguments, client=client, **options))
 
-    assert json.loads(result)["title"] == expected[0]
+    rendered = json.loads(result)
+    assert rendered["title"] == expected[0]
+    assert rendered["footer"]["cached"] is False
+    assert rendered["footer"]["updatedAt"]
+    assert "notice" not in rendered["footer"]
     assert service.calls == [expected]
     assert client.close_calls == 0
 
@@ -202,6 +207,21 @@ def test_named_function_uses_unified_query(monkeypatch) -> None:
 
     assert result == "result"
     assert calls == [("overview", "player", {"format": "json"})]
+
+
+def test_radar_named_function_defaults_to_twenty_matches(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    async def fake_query(*args: object, **kwargs: object) -> str:
+        calls.append((*args, kwargs))
+        return "result"
+
+    monkeypatch.setattr(api_module, "query", fake_query)
+
+    result = asyncio.run(api_module.radar("player", format="json"))
+
+    assert result == "result"
+    assert calls == [("radar", "player", {"format": "json", "count": 20})]
 
 
 @pytest.mark.parametrize(

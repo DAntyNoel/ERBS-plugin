@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Literal, overload
 
+from .cache import QueryCacheDatabase, annotate_query_payload, query_cache_spec
 from .client import AsyncERBSClient
 from .config import ERBSConfig
 from .exceptions import InvalidQuery
@@ -19,6 +20,7 @@ type QueryOperation = Literal[
     "stats",
     "matches",
     "recent",
+    "radar",
     "characters",
     "skins",
     "teammates",
@@ -78,6 +80,9 @@ async def _payload_for(
     if operation == "recent":
         _require_arguments(operation, arguments, 1)
         return await service.recent_card(arguments[0])
+    if operation == "radar":
+        _require_arguments(operation, arguments, 1)
+        return await service.radar_card(arguments[0], count=count)
     if operation == "characters":
         _require_arguments(operation, arguments, 1)
         return await service.characters_card(arguments[0])
@@ -236,19 +241,46 @@ async def query(
     if format != "path" and output is not None:
         raise InvalidQuery("output is only supported when format='path'")
 
+    normalized_operation = _normalize_operation(operation)
     active_config = config or (client.config if client is not None else ERBSConfig())
-    owned_client = client is None
-    active_client = client or AsyncERBSClient(active_config)
-    try:
-        payload = await _payload_for(
-            ERBSService(active_client),
-            operation,
+    cache_ttl = active_config.query_cache_ttl(normalized_operation)
+    query_database: QueryCacheDatabase | None = None
+    cache_spec: dict[str, object] | None = None
+    payload: CardPayload | None = None
+    if cache_ttl > 0:
+        query_database = QueryCacheDatabase(
+            active_config.private_database_path,
+            max_entries=active_config.query_cache_max_entries,
+        )
+        cache_spec = query_cache_spec(
+            normalized_operation,
             arguments,
+            api_base_url=active_config.api_base_url,
+            language=active_config.language,
             count=count,
             page=page,
             season=season,
             weapon=weapon,
         )
+        payload = await query_database.get(cache_spec)
+
+    owned_client = client is None
+    active_client = client
+    try:
+        if payload is None:
+            active_client = active_client or AsyncERBSClient(active_config)
+            payload = await _payload_for(
+                ERBSService(active_client),
+                normalized_operation,
+                arguments,
+                count=count,
+                page=page,
+                season=season,
+                weapon=weapon,
+            )
+            payload = annotate_query_payload(payload)
+            if query_database is not None and cache_spec is not None:
+                await query_database.set(cache_spec, payload, ttl=cache_ttl)
         return await _render_output(
             payload,
             format=format,
@@ -257,7 +289,7 @@ async def query(
             renderer=renderer,
         )
     finally:
-        if owned_client:
+        if owned_client and active_client is not None:
             await active_client.aclose()
 
 
@@ -279,6 +311,11 @@ async def matches(nickname: str, **options: object) -> QueryOutput:
 
 async def recent(nickname: str, **options: object) -> QueryOutput:
     return await query("recent", nickname, **options)  # type: ignore[arg-type]
+
+
+async def radar(nickname: str, **options: object) -> QueryOutput:
+    options.setdefault("count", 20)
+    return await query("radar", nickname, **options)  # type: ignore[arg-type]
 
 
 async def characters(nickname: str, **options: object) -> QueryOutput:
@@ -345,6 +382,7 @@ __all__ = [
     "multi",
     "player_overview",
     "query",
+    "radar",
     "rank",
     "recent",
     "routes",
