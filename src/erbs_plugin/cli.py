@@ -8,6 +8,7 @@ from pathlib import Path
 from .api import query
 from .assets import cli as assets_cli
 from .config import ERBSConfig
+from .debug import preview_operations, render_card_previews
 from .exceptions import (
     AssetMissing,
     ERBSError,
@@ -54,6 +55,18 @@ def _add_assets_commands(
         command.add_argument("--directory", type=Path, required=True)
         command.add_argument("--concurrency", type=int, default=4)
         command.add_argument("--force", action="store_true")
+
+
+def _add_debug_commands(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+    debug = subparsers.add_parser("debug", help="offline card preview tools")
+    commands = debug.add_subparsers(dest="debug_command", required=True)
+    cards = commands.add_parser("cards", help="render representative images for every command")
+    cards.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
+    cards.add_argument("--only", nargs="+", choices=preview_operations())
+    cards.add_argument("--browser-path", type=Path)
+    cards.add_argument("--scale", type=float, default=1.0)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -106,6 +119,7 @@ def parser() -> argparse.ArgumentParser:
     _add_output_options(routes)
 
     _add_assets_commands(subparsers)
+    _add_debug_commands(subparsers)
     return result
 
 
@@ -143,6 +157,15 @@ async def run(args: argparse.Namespace) -> int:
                 force=args.force,
             )
             return await assets_cli.run(asset_args)
+
+        if args.operation == "debug":
+            build = await render_card_previews(
+                args.output_directory,
+                operations=args.only,
+                config=ERBSConfig(browser_path=args.browser_path, render_scale=args.scale),
+            )
+            print(f"rendered {len(build.images)} card previews: {build.index}")
+            return 0
 
         if args.format == "path" and args.output is None:
             raise InvalidQuery("--output is required when --format path is used")

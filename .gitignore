@@ -2,6 +2,7 @@
 .uv-cache/
 .ruff_cache/
 .pytest_cache/
+.debug/
 __pycache__/
 *.py[cod]
 dist/
@@ -10,3 +11,4 @@ build/
 /assets/
 manifest.json
 .DS_Store
+AGENTS.md
