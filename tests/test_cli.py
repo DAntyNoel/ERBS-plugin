@@ -19,13 +19,10 @@ from erbs_plugin import PlayerNotFound, RenderFailed, UpstreamUnavailable
         ["matches", "player", "--count", "10"],
         ["recent", "player"],
         ["characters", "player"],
-        ["skins", "player"],
         ["teammates", "player"],
         ["best-match", "player"],
         ["hero-pool", "player"],
         ["equipment", "player"],
-        ["multi", "one", "two", "three"],
-        ["compare", "one", "two"],
         ["leaderboard", "--page", "2"],
         ["character", "Black", "Mamba", "--weapon", "Pistol"],
         ["item", "Mithril", "Armor"],
@@ -35,6 +32,29 @@ from erbs_plugin import PlayerNotFound, RenderFailed, UpstreamUnavailable
 )
 def test_parser_accepts_every_command(arguments: list[str]) -> None:
     assert cli_module.parser().parse_args(arguments).operation == arguments[0]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["skins", "player"],
+        ["multi", "one", "two"],
+        ["compare", "one", "two"],
+        ["debug", "skins", "player"],
+        ["debug", "multi", "one", "two"],
+        ["debug", "compare", "one", "two"],
+    ],
+)
+def test_retired_commands_are_not_exposed(arguments: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli_module.parser().parse_args(arguments)
+
+
+def test_render_commands_do_not_expose_asset_directory_option() -> None:
+    with pytest.raises(SystemExit):
+        cli_module.parser().parse_args(
+            ["overview", "player", "--asset-directory", "assets"]
+        )
 
 
 def test_cli_json_output(monkeypatch, capsys) -> None:

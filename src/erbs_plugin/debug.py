@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import base64
+import hashlib
 import json
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from html import escape
 from pathlib import Path
+from typing import Any, Literal
 
 from .config import ERBSConfig
 from .models import CardPayload
@@ -20,30 +21,54 @@ class CardPreview:
 
 
 @dataclass(frozen=True, slots=True)
+class DebugQuery:
+    operation: str
+    arguments: tuple[str, ...] = ()
+    count: int = 5
+    page: int = 1
+    season: str | None = None
+    weapon: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PreviewBuild:
     output_directory: Path
     index: Path
     manifest: Path
     images: tuple[Path, ...]
+    primary_image: Path | None = None
+    gallery_count: int = 0
+    result: str | bytes | Path | None = None
 
 
-def _icon(label: str, start: str, end: str) -> str:
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-<stop stop-color="{start}"/><stop offset="1" stop-color="{end}"/>
-</linearGradient></defs>
-<rect width="128" height="128" rx="24" fill="url(#g)"/>
-<text x="64" y="73" text-anchor="middle" fill="white"
- font-family="Arial, sans-serif" font-size="34" font-weight="700">{label}</text>
-</svg>"""
-    encoded = base64.b64encode(svg.encode()).decode("ascii")
-    return f"data:image/svg+xml;base64,{encoded}"
+_EMMA_CHARACTER_IMAGE = "asset://CharProfile_Emma_S000.png"
+_NICKY_CHARACTER_IMAGE = "asset://CharProfile_Nicky_S000.png"
+_KARLA_CHARACTER_IMAGE = "asset://CharProfile_Karla_S000.png"
+_SUN_ITEM_IMAGE = "asset://ItemIcon_130503.png"
+_ELVEN_DRESS_ITEM_IMAGE = "asset://ItemIcon_202516.png"
+_WHITE_NIGHT_CROWN_ITEM_IMAGE = "asset://ItemIcon_201536.png"
+DEFAULT_DEBUG_PLAYERS = ("B站丨咕咕禽OC", "Preme", "페이블")
+_PRIMARY_PLAYER, _SECONDARY_PLAYER, _TERTIARY_PLAYER = DEFAULT_DEBUG_PLAYERS
 
-
-_PLAYER_ICON = _icon("ER", "#19b99a", "#1474a8")
-_CHARACTER_ICON = _icon("C", "#7848db", "#d74a8b")
-_ITEM_ICON = _icon("I", "#d49a22", "#ce4f2d")
-_ROUTE_ICON = _icon("R", "#2b7f5f", "#59b54b")
+DEFAULT_DEBUG_QUERIES = (
+    DebugQuery("overview", (_PRIMARY_PLAYER,)),
+    DebugQuery("rank", (_PRIMARY_PLAYER,)),
+    DebugQuery("stats", (_PRIMARY_PLAYER,)),
+    DebugQuery("matches", (_PRIMARY_PLAYER,), count=5),
+    DebugQuery("recent", (_PRIMARY_PLAYER,)),
+    DebugQuery("characters", (_PRIMARY_PLAYER,)),
+    DebugQuery("skins", (_PRIMARY_PLAYER,)),
+    DebugQuery("teammates", (_PRIMARY_PLAYER,)),
+    DebugQuery("multi", DEFAULT_DEBUG_PLAYERS),
+    DebugQuery("compare", (_PRIMARY_PLAYER, _SECONDARY_PLAYER)),
+    DebugQuery("best-match", (_PRIMARY_PLAYER,)),
+    DebugQuery("hero-pool", (_PRIMARY_PLAYER,)),
+    DebugQuery("equipment", (_PRIMARY_PLAYER,)),
+    DebugQuery("leaderboard"),
+    DebugQuery("character", ("艾玛",), weapon="Arcana"),
+    DebugQuery("item", ("烈阳",)),
+    DebugQuery("routes", ("艾玛",), weapon="Arcana"),
+)
 
 
 def _card(
@@ -52,7 +77,7 @@ def _card(
     sections: tuple[dict[str, object], ...],
     *,
     kind: str = "player",
-    title: str = "预览玩家",
+    title: str = _PRIMARY_PLAYER,
 ) -> CardPreview:
     return CardPreview(
         operation=operation,
@@ -62,7 +87,7 @@ def _card(
             title=title,
             subtitle=subtitle,
             sections=sections,
-            footer={"source": "DAK.GG", "cached": operation in {"rank", "skins"}},
+            footer={"source": "DAK.GG", "cached": operation == "rank"},
         ),
     )
 
@@ -77,11 +102,71 @@ CARD_PREVIEWS = (
                 "type": "stats",
                 "items": [
                     {"label": "等级", "value": 87},
-                    {"label": "MMR", "value": 8123},
+                    {"label": "赛季", "value": 39},
                     {"label": "场次", "value": 339},
                     {"label": "胜场", "value": 54},
+                    {"label": "胜率", "value": "15.9%"},
                     {"label": "TOP 3", "value": 126},
                     {"label": "击杀", "value": 918},
+                    {"label": "助攻", "value": 1634},
+                ],
+            },
+            {
+                "title": "当前段位",
+                "type": "stats",
+                "items": [
+                    {"label": "MMR", "value": 8123},
+                    {"label": "Tier ID", "value": 9},
+                    {"label": "小段", "value": 1},
+                    {"label": "小段 RP", "value": 83},
+                ],
+            },
+            {
+                "title": "最近 20 场摘要",
+                "type": "stats",
+                "items": [
+                    {"label": "场次", "value": 20},
+                    {"label": "胜场", "value": 4},
+                    {"label": "TOP 3", "value": 11},
+                    {"label": "平均排名", "value": "#3.2"},
+                ],
+            },
+            {
+                "title": "名次走势",
+                "type": "placements",
+                "items": [
+                    {"rank": rank, "victory": rank == 1, "podium": rank <= 3}
+                    for rank in (1, 2, 6, 3, 4, 5, 2, 1, 7, 3)
+                ],
+            },
+            {
+                "title": "常用实验体 / 英雄池",
+                "type": "hero-pool",
+                "items": [
+                    {
+                        "name": "艾玛",
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
+                        "poolRank": 1,
+                        "plays": 72,
+                        "winRate": "25.0%",
+                        "usagePercent": "47.7%",
+                    },
+                    {
+                        "name": "妮琪",
+                        "imageUrl": _NICKY_CHARACTER_IMAGE,
+                        "poolRank": 2,
+                        "plays": 48,
+                        "winRate": "18.8%",
+                        "usagePercent": "31.8%",
+                    },
+                    {
+                        "name": "卡拉",
+                        "imageUrl": _KARLA_CHARACTER_IMAGE,
+                        "poolRank": 3,
+                        "plays": 31,
+                        "winRate": "19.4%",
+                        "usagePercent": "20.5%",
+                    },
                 ],
             },
         ),
@@ -132,7 +217,7 @@ CARD_PREVIEWS = (
                 "items": [
                     {
                         "name": "#1 · 艾玛",
-                        "imageUrl": _CHARACTER_ICON,
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
                         "kills": 8,
                         "assists": 7,
                         "damage": 27841,
@@ -141,7 +226,7 @@ CARD_PREVIEWS = (
                     },
                     {
                         "name": "#4 · 妮琪",
-                        "imageUrl": _PLAYER_ICON,
+                        "imageUrl": _NICKY_CHARACTER_IMAGE,
                         "kills": 3,
                         "assists": 5,
                         "damage": 16402,
@@ -168,9 +253,12 @@ CARD_PREVIEWS = (
                 ],
             },
             {
-                "title": "名次序列",
-                "type": "items",
-                "items": [{"name": rank} for rank in ("#1", "#2", "#6", "#3", "#4")],
+                "title": "名次走势",
+                "type": "placements",
+                "items": [
+                    {"rank": rank, "victory": rank == 1, "podium": rank <= 3}
+                    for rank in (1, 2, 6, 3, 4, 5, 2, 1, 7, 3)
+                ],
             },
         ),
         kind="matches",
@@ -180,11 +268,25 @@ CARD_PREVIEWS = (
         "实验体统计",
         (
             {
-                "title": "常用实验体",
-                "type": "items",
+                "title": "常用实验体 / 英雄池",
+                "type": "hero-pool",
                 "items": [
-                    {"name": "艾玛", "imageUrl": _CHARACTER_ICON, "play": 72, "win": 18},
-                    {"name": "妮琪", "imageUrl": _PLAYER_ICON, "play": 48, "win": 9},
+                    {
+                        "name": "艾玛",
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
+                        "poolRank": 1,
+                        "plays": 72,
+                        "winRate": "25.0%",
+                        "usagePercent": "60.0%",
+                    },
+                    {
+                        "name": "妮琪",
+                        "imageUrl": _NICKY_CHARACTER_IMAGE,
+                        "poolRank": 2,
+                        "plays": 48,
+                        "winRate": "18.8%",
+                        "usagePercent": "40.0%",
+                    },
                 ],
             },
         ),
@@ -198,8 +300,8 @@ CARD_PREVIEWS = (
                 "title": "最近战绩中的皮肤",
                 "type": "items",
                 "items": [
-                    {"name": "午夜魔术师 艾玛", "imageUrl": _CHARACTER_ICON, "count": 12},
-                    {"name": "冠军 妮琪", "imageUrl": _PLAYER_ICON, "count": 7},
+                    {"name": "午夜魔术师 艾玛", "imageUrl": _EMMA_CHARACTER_IMAGE, "count": 12},
+                    {"name": "冠军 妮琪", "imageUrl": _NICKY_CHARACTER_IMAGE, "count": 7},
                 ],
             },
         ),
@@ -213,9 +315,8 @@ CARD_PREVIEWS = (
                 "title": "最近共同游戏",
                 "type": "items",
                 "items": [
-                    {"name": "队友 Alpha", "games": 4},
-                    {"name": "队友 Beta", "games": 2},
-                    {"name": "队友 Gamma", "games": 1},
+                    {"name": _SECONDARY_PLAYER, "games": 4},
+                    {"name": _TERTIARY_PLAYER, "games": 2},
                 ],
             },
         ),
@@ -228,14 +329,14 @@ CARD_PREVIEWS = (
                 "title": "玩家",
                 "type": "items",
                 "items": [
-                    {"name": "玩家 Alpha", "mmr": 8123, "level": 87, "plays": 339},
-                    {"name": "玩家 Beta", "mmr": 7760, "level": 64, "plays": 205},
-                    {"name": "玩家 Gamma", "mmr": 7421, "level": 52, "plays": 188},
+                    {"name": _PRIMARY_PLAYER, "mmr": 8123, "level": 87, "plays": 339},
+                    {"name": _SECONDARY_PLAYER, "mmr": 7760, "level": 64, "plays": 205},
+                    {"name": _TERTIARY_PLAYER, "mmr": 7421, "level": 52, "plays": 188},
                 ],
             },
         ),
         kind="comparison",
-        title="玩家 Alpha / 玩家 Beta / 玩家 Gamma",
+        title=" / ".join(DEFAULT_DEBUG_PLAYERS),
     ),
     _card(
         "compare",
@@ -244,8 +345,8 @@ CARD_PREVIEWS = (
             {
                 "title": "核心数据",
                 "type": "comparison",
-                "left": "玩家 Alpha",
-                "right": "玩家 Beta",
+                "left": _PRIMARY_PLAYER,
+                "right": _SECONDARY_PLAYER,
                 "rows": [
                     {"label": "场次", "left": 339, "right": 205},
                     {"label": "胜场", "left": 54, "right": 39},
@@ -256,7 +357,7 @@ CARD_PREVIEWS = (
             },
         ),
         kind="comparison",
-        title="玩家 Alpha VS 玩家 Beta",
+        title=f"{_PRIMARY_PLAYER} VS {_SECONDARY_PLAYER}",
     ),
     _card(
         "best-match",
@@ -268,7 +369,7 @@ CARD_PREVIEWS = (
                 "items": [
                     {
                         "name": "#1 · 艾玛",
-                        "imageUrl": _CHARACTER_ICON,
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
                         "kills": 11,
                         "assists": 9,
                         "teamKills": 20,
@@ -285,12 +386,33 @@ CARD_PREVIEWS = (
         "英雄池",
         (
             {
-                "title": "常用实验体",
-                "type": "items",
+                "title": "常用实验体 / 英雄池",
+                "type": "hero-pool",
                 "items": [
-                    {"name": "艾玛", "imageUrl": _CHARACTER_ICON, "play": 72, "win": 18},
-                    {"name": "妮琪", "imageUrl": _PLAYER_ICON, "play": 48, "win": 9},
-                    {"name": "卡拉", "imageUrl": _ROUTE_ICON, "play": 31, "win": 6},
+                    {
+                        "name": "艾玛",
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
+                        "poolRank": 1,
+                        "plays": 72,
+                        "winRate": "25.0%",
+                        "usagePercent": "47.7%",
+                    },
+                    {
+                        "name": "妮琪",
+                        "imageUrl": _NICKY_CHARACTER_IMAGE,
+                        "poolRank": 2,
+                        "plays": 48,
+                        "winRate": "18.8%",
+                        "usagePercent": "31.8%",
+                    },
+                    {
+                        "name": "卡拉",
+                        "imageUrl": _KARLA_CHARACTER_IMAGE,
+                        "poolRank": 3,
+                        "plays": 31,
+                        "winRate": "19.4%",
+                        "usagePercent": "20.5%",
+                    },
                 ],
             },
         ),
@@ -304,9 +426,9 @@ CARD_PREVIEWS = (
                 "title": "装备频率",
                 "type": "items",
                 "items": [
-                    {"name": "秘银装甲", "imageUrl": _ITEM_ICON, "count": 16},
-                    {"name": "智能手环", "imageUrl": _PLAYER_ICON, "count": 12},
-                    {"name": "圣法衣", "imageUrl": _CHARACTER_ICON, "count": 9},
+                    {"name": "烈阳", "imageUrl": _SUN_ITEM_IMAGE, "count": 16},
+                    {"name": "精灵舞裙", "imageUrl": _ELVEN_DRESS_ITEM_IMAGE, "count": 12},
+                    {"name": "白夜王冠", "imageUrl": _WHITE_NIGHT_CROWN_ITEM_IMAGE, "count": 9},
                 ],
             },
         ),
@@ -320,9 +442,9 @@ CARD_PREVIEWS = (
                 "title": "排名",
                 "type": "items",
                 "items": [
-                    {"name": "Rank One", "rank": 1, "mmr": 11842, "tier": "Immortal"},
-                    {"name": "Rank Two", "rank": 2, "mmr": 11690, "tier": "Immortal"},
-                    {"name": "Rank Three", "rank": 3, "mmr": 11571, "tier": "Immortal"},
+                    {"name": _PRIMARY_PLAYER, "rank": 1, "mmr": 11842, "tier": "Immortal"},
+                    {"name": _SECONDARY_PLAYER, "rank": 2, "mmr": 11690, "tier": "Immortal"},
+                    {"name": _TERTIARY_PLAYER, "rank": 3, "mmr": 11571, "tier": "Immortal"},
                 ],
             },
         ),
@@ -339,7 +461,7 @@ CARD_PREVIEWS = (
                 "items": [
                     {
                         "name": "艾玛 · 暗器",
-                        "imageUrl": _CHARACTER_ICON,
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
                         "pickRate": "4.8%",
                         "winRate": "12.6%",
                         "averageRank": 3.4,
@@ -359,8 +481,8 @@ CARD_PREVIEWS = (
                 "type": "items",
                 "items": [
                     {
-                        "name": "秘银装甲",
-                        "imageUrl": _ITEM_ICON,
+                        "name": "烈阳",
+                        "imageUrl": _SUN_ITEM_IMAGE,
                         "rarity": "Legend",
                         "defense": 38,
                         "moveSpeed": "0.08",
@@ -369,7 +491,7 @@ CARD_PREVIEWS = (
             },
         ),
         kind="global",
-        title="秘银装甲",
+        title="烈阳",
     ),
     _card(
         "routes",
@@ -381,14 +503,14 @@ CARD_PREVIEWS = (
                 "items": [
                     {
                         "name": "港口 → 仓库 → 消防局",
-                        "imageUrl": _ROUTE_ICON,
+                        "imageUrl": _SUN_ITEM_IMAGE,
                         "routeId": 10421,
                         "weapon": "暗器",
                         "votes": 284,
                     },
                     {
                         "name": "寺庙 → 森林 → 池塘",
-                        "imageUrl": _PLAYER_ICON,
+                        "imageUrl": _ELVEN_DRESS_ITEM_IMAGE,
                         "routeId": 10608,
                         "weapon": "暗器",
                         "votes": 167,
@@ -403,29 +525,110 @@ CARD_PREVIEWS = (
 
 
 def preview_operations() -> tuple[str, ...]:
-    return tuple(preview.operation for preview in CARD_PREVIEWS)
+    return tuple(query.operation for query in DEFAULT_DEBUG_QUERIES)
 
 
-def _select_previews(operations: Iterable[str] | None) -> tuple[CardPreview, ...]:
-    if operations is None:
-        return CARD_PREVIEWS
-    requested = tuple(dict.fromkeys(operations))
-    unknown = sorted(set(requested) - set(preview_operations()))
-    if unknown:
-        raise ValueError(f"unknown preview operation: {', '.join(unknown)}")
-    requested_set = set(requested)
-    return tuple(preview for preview in CARD_PREVIEWS if preview.operation in requested_set)
+def _read_manifest(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
 
 
-def _gallery_html(previews: tuple[CardPreview, ...]) -> str:
+def _quoted(value: str) -> str:
+    return f'"{value}"' if any(character.isspace() for character in value) else value
+
+
+def _debug_query_command(query: DebugQuery) -> str:
+    parts = ["erbs", query.operation, *query.arguments]
+    if query.operation == "matches":
+        parts.extend(("--count", str(query.count)))
+    if query.operation == "leaderboard":
+        parts.extend(("--page", str(query.page)))
+    if query.season is not None:
+        parts.extend(("--season", query.season))
+    if query.weapon is not None:
+        parts.extend(("--weapon", query.weapon))
+    return " ".join(_quoted(part) for part in parts)
+
+
+def _live_record(query: DebugQuery, payload: CardPayload) -> dict[str, Any]:
+    return {
+        "id": f"live:{query.operation}",
+        "source": "live",
+        "operation": query.operation,
+        "description": _debug_query_command(query),
+        "image": f"{query.operation}.png",
+        "arguments": list(query.arguments),
+        "options": {
+            "count": query.count,
+            "page": query.page,
+            "season": query.season,
+            "weapon": query.weapon,
+        },
+        "payload": asdict(payload),
+    }
+
+
+def _image_exists(output_directory: Path, record: dict[str, Any]) -> bool:
+    image = record.get("image")
+    if not isinstance(image, str) or Path(image).name != image:
+        return False
+    return (output_directory / image).is_file()
+
+
+def _gallery_records(
+    output_directory: Path,
+    *,
+    live_records: list[dict[str, Any]] | None = None,
+    custom_record: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    manifest = output_directory / "manifest.json"
+    existing_records = _read_manifest(manifest)
+    if live_records is None:
+        live_records = [
+            record
+            for record in existing_records
+            if record.get("source") == "live" and _image_exists(output_directory, record)
+        ]
+    live_by_operation = {str(record.get("operation")): record for record in live_records}
+    default_records = [
+        live_by_operation[query.operation]
+        for query in DEFAULT_DEBUG_QUERIES
+        if query.operation in live_by_operation
+        and _image_exists(output_directory, live_by_operation[query.operation])
+    ]
+    custom_records = [
+        record
+        for record in existing_records
+        if record.get("source") == "query" and _image_exists(output_directory, record)
+    ]
+    if custom_record is not None:
+        custom_records = [
+            record for record in custom_records if record.get("id") != custom_record.get("id")
+        ]
+        custom_records.append(custom_record)
+    return [*default_records, *custom_records]
+
+
+def _gallery_html(records: list[dict[str, Any]]) -> str:
     cards = "\n".join(
         f"""<article>
-  <header><code>{escape(preview.operation)}</code><span>{escape(preview.description)}</span></header>
-  <a href="{escape(preview.operation)}.png">
-    <img src="{escape(preview.operation)}.png" alt="{escape(preview.operation)} preview">
+  <header>
+    <code>{escape(str(record['operation']))}</code>
+    <span>{escape(str(record['description']))}</span>
+    <b>{escape(str(record.get('source', 'live')).upper())}</b>
+  </header>
+  <a href="{escape(str(record['image']))}">
+    <img src="{escape(str(record['image']))}" alt="{escape(str(record['operation']))} preview">
   </a>
 </article>"""
-        for preview in previews
+        for record in records
     )
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -451,70 +654,251 @@ def _gallery_html(previews: tuple[CardPreview, ...]) -> str:
     }}
     header {{ display: flex; gap: 12px; align-items: center; padding: 12px 14px; }}
     code {{ color: #62f4d4; font-size: 14px; }}
-    header span {{ color: #8fa8bb; font-size: 13px; }}
+    header span {{ color: #8fa8bb; font-size: 13px; flex: 1; }}
+    header b {{ color: #60778a; font-size: 10px; letter-spacing: 1px; }}
     a {{ display: block; padding: 0 10px 10px; }}
     img {{ display: block; width: 100%; height: auto; border-radius: 8px; }}
   </style>
 </head>
 <body>
   <h1>ERBS command card previews</h1>
-  <p>{len(previews)} 个离线样例 · 修改 card.html 或 card.css 后重新运行生成命令</p>
+  <p>{len(records)} 个预览结果 · 修改 card.html 或 card.css 后重新运行生成命令</p>
   <main>{cards}</main>
 </body>
 </html>
 """
 
 
+def _write_gallery(
+    output_directory: Path,
+    *,
+    live_records: list[dict[str, Any]] | None = None,
+    custom_record: dict[str, Any] | None = None,
+) -> tuple[Path, Path, int]:
+    records = _gallery_records(
+        output_directory,
+        live_records=live_records,
+        custom_record=custom_record,
+    )
+    index = output_directory / "index.html"
+    manifest = output_directory / "manifest.json"
+    index.write_text(_gallery_html(records), encoding="utf-8")
+    manifest.write_text(
+        json.dumps(records, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return index, manifest, len(records)
+
+
 async def render_card_previews(
     output_directory: str | Path,
     *,
-    operations: Iterable[str] | None = None,
+    missing_only: bool = False,
     config: ERBSConfig | None = None,
     renderer: HtmlCardRenderer | None = None,
+    payload_provider: Callable[[DebugQuery], Awaitable[CardPayload]] | None = None,
 ) -> PreviewBuild:
-    selected = _select_previews(operations)
+    from .api import _payload_for
+    from .client import AsyncERBSClient
+    from .services import ERBSService
+
     destination = Path(output_directory).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
+    existing_live_records = [
+        record
+        for record in _read_manifest(destination / "manifest.json")
+        if record.get("source") == "live" and _image_exists(destination, record)
+    ]
+    existing_live_by_operation = {
+        str(record.get("operation")): record for record in existing_live_records
+    }
+    queries_to_render = tuple(
+        query
+        for query in DEFAULT_DEBUG_QUERIES
+        if not missing_only or query.operation not in existing_live_by_operation
+    )
 
+    active_config = config or ERBSConfig()
     owned_renderer = renderer is None
-    active_renderer = renderer or HtmlCardRenderer(config)
+    active_renderer = renderer or HtmlCardRenderer(active_config)
+    client: AsyncERBSClient | None = None
+    if payload_provider is None:
+        client = AsyncERBSClient(active_config)
+        service = ERBSService(client)
+
+        async def load_payload(query: DebugQuery) -> CardPayload:
+            return await _payload_for(
+                service,
+                query.operation,
+                query.arguments,
+                count=query.count,
+                page=query.page,
+                season=query.season,
+                weapon=query.weapon,
+            )
+
+        active_payload_provider = load_payload
+    else:
+        active_payload_provider = payload_provider
+
+    live_by_operation = existing_live_by_operation if missing_only else {}
     images: list[Path] = []
     try:
-        for preview in selected:
-            image_path = destination / f"{preview.operation}.png"
-            image_path.write_bytes(await active_renderer.render(preview.payload))
+        for query in queries_to_render:
+            payload = await active_payload_provider(query)
+            image_path = destination / f"{query.operation}.png"
+            image_path.write_bytes(await active_renderer.render(payload))
             images.append(image_path)
+            live_by_operation[query.operation] = _live_record(query, payload)
     finally:
+        if client is not None:
+            await client.aclose()
         if owned_renderer:
             await active_renderer.close()
 
-    index = destination / "index.html"
-    manifest = destination / "manifest.json"
-    index.write_text(_gallery_html(selected), encoding="utf-8")
-    manifest.write_text(
-        json.dumps(
-            [
-                {
-                    "operation": preview.operation,
-                    "description": preview.description,
-                    "image": f"{preview.operation}.png",
-                    "payload": asdict(preview.payload),
-                }
-                for preview in selected
-            ],
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    live_records = [
+        live_by_operation[query.operation]
+        for query in DEFAULT_DEBUG_QUERIES
+        if query.operation in live_by_operation
+    ]
+    index, manifest, gallery_count = _write_gallery(
+        destination,
+        live_records=live_records,
     )
-    return PreviewBuild(destination, index, manifest, tuple(images))
+    return PreviewBuild(
+        destination,
+        index,
+        manifest,
+        tuple(images),
+        gallery_count=gallery_count,
+    )
+
+async def render_query_preview(
+    operation: str,
+    *arguments: str,
+    output_directory: str | Path,
+    config: ERBSConfig | None = None,
+    renderer: HtmlCardRenderer | None = None,
+    gallery_payload_provider: Callable[[DebugQuery], Awaitable[CardPayload]] | None = None,
+    format: Literal["json", "bytes", "path"] = "json",
+    output: str | Path | None = None,
+    count: int = 5,
+    page: int = 1,
+    season: str | None = None,
+    weapon: str | None = None,
+) -> PreviewBuild:
+    from .api import _payload_for, _render_output
+    from .client import AsyncERBSClient
+    from .services import ERBSService
+
+    destination = Path(output_directory).expanduser().resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    active_config = config or ERBSConfig()
+    spec = {
+        "operation": operation,
+        "arguments": list(arguments),
+        "count": count,
+        "page": page,
+        "season": season,
+        "weapon": weapon,
+        "language": active_config.language,
+    }
+    digest = hashlib.sha256(
+        json.dumps(spec, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:12]
+    image_path = destination / f"custom-{operation}-{digest}.png"
+
+    owned_renderer = renderer is None
+    active_renderer = renderer or HtmlCardRenderer(active_config)
+    client = AsyncERBSClient(active_config)
+    try:
+        payload = await _payload_for(
+            ERBSService(client),
+            operation,
+            arguments,
+            count=count,
+            page=page,
+            season=season,
+            weapon=weapon,
+        )
+        result = await _render_output(
+            payload,
+            format=format,
+            output=output,
+            config=active_config,
+            renderer=active_renderer,
+        )
+        if isinstance(result, bytes):
+            image = result
+        elif isinstance(result, Path):
+            image = result.read_bytes()
+        else:
+            image = await active_renderer.render(payload)
+        bootstrap = await render_card_previews(
+            destination,
+            missing_only=True,
+            config=active_config,
+            renderer=active_renderer,
+            payload_provider=gallery_payload_provider,
+        )
+        image_path.write_bytes(image)
+    finally:
+        await client.aclose()
+        if owned_renderer:
+            await active_renderer.close()
+
+    option_parts = []
+    if count != 5:
+        option_parts.extend(("--count", str(count)))
+    if page != 1:
+        option_parts.extend(("--page", str(page)))
+    if season is not None:
+        option_parts.extend(("--season", season))
+    if weapon is not None:
+        option_parts.extend(("--weapon", weapon))
+    command = " ".join(
+        _quoted(part)
+        for part in ("erbs", "debug", operation, *arguments, *option_parts)
+    )
+    custom_record = {
+        "id": f"query:{digest}",
+        "source": "query",
+        "operation": operation,
+        "description": command,
+        "image": image_path.name,
+        "arguments": list(arguments),
+        "options": {
+            "count": count,
+            "page": page,
+            "season": season,
+            "weapon": weapon,
+            "language": active_config.language,
+        },
+        "payload": asdict(payload),
+    }
+    index, manifest, gallery_count = _write_gallery(
+        destination,
+        custom_record=custom_record,
+    )
+    return PreviewBuild(
+        destination,
+        index,
+        manifest,
+        (*bootstrap.images, image_path),
+        primary_image=image_path,
+        gallery_count=gallery_count,
+        result=result,
+    )
 
 
 __all__ = [
     "CARD_PREVIEWS",
+    "DEFAULT_DEBUG_PLAYERS",
+    "DEFAULT_DEBUG_QUERIES",
     "CardPreview",
+    "DebugQuery",
     "PreviewBuild",
     "preview_operations",
     "render_card_previews",
+    "render_query_preview",
 ]

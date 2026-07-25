@@ -29,7 +29,6 @@ Query JSON directly:
 ```bash
 erbs overview eternalreturn
 erbs matches eternalreturn --count 10
-erbs compare player-one player-two
 ```
 
 Prepare local assets and render a PNG file:
@@ -39,14 +38,13 @@ erbs assets download --directory ./data/erbs-assets
 erbs assets check --directory ./data/erbs-assets
 erbs overview eternalreturn \
   --format path \
-  --output ./player.png \
-  --asset-directory ./data/erbs-assets
+  --output ./player.png
 ```
 
 Raw PNG bytes can be piped or redirected:
 
 ```bash
-erbs overview eternalreturn --format bytes --asset-directory ./data/erbs-assets > player.png
+erbs overview eternalreturn --format bytes > player.png
 ```
 
 The same CLI is available through `python -m erbs_plugin`. The existing `erbs-assets` command is
@@ -69,9 +67,9 @@ png_path = await player_overview(
 ```
 
 Available functions cover player overview, rank, statistics, matches, recent performance,
-characters, skins, teammates, multi-player queries, comparisons, best matches, hero pools,
-equipment habits, leaderboards, character statistics, items, and routes. The generic `query()`
-function exposes the same operations through a single entry point.
+characters, teammates, best matches, hero pools, equipment habits, leaderboards, character
+statistics, items, and routes. The generic `query()` function exposes the same supported operations
+through a single entry point.
 
 Long-running consumers can pass an existing `AsyncERBSClient` and `HtmlCardRenderer`; resources
 supplied by the caller remain owned by the caller. The lower-level client, service, model, analysis,
@@ -85,7 +83,9 @@ Data is read from public DAK.GG Eternal Return endpoints used by its public webs
 does not invoke player refresh, authentication, management, or write endpoints. Consumers should
 use conservative request rates and display `Data source: DAK.GG` where appropriate.
 
-Runtime rendering reads local image assets and never downloads missing assets implicitly.
+Runtime rendering searches the current directory and its parents for downloaded local assets. It
+reuses matching files and falls back to the bundled placeholder when an image is missing; it never
+downloads missing assets implicitly.
 
 ## License
 

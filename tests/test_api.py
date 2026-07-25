@@ -202,3 +202,26 @@ def test_named_function_uses_unified_query(monkeypatch) -> None:
 
     assert result == "result"
     assert calls == [("overview", "player", {"format": "json"})]
+
+
+@pytest.mark.parametrize(
+    ("function", "arguments", "expected"),
+    [
+        (api_module.skins, ("player",), ("skins", "player")),
+        (api_module.multi, ("one", "two"), ("multi", "one", "two")),
+        (api_module.compare, ("one", "two"), ("compare", "one", "two")),
+    ],
+)
+def test_retired_cli_operations_keep_their_python_api(
+    monkeypatch, function, arguments: tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    async def fake_query(*args: object, **kwargs: object) -> str:
+        calls.append((*args, kwargs))
+        return "result"
+
+    monkeypatch.setattr(api_module, "query", fake_query)
+
+    assert asyncio.run(function(*arguments, format="json")) == "result"
+    assert calls == [(*expected, {"format": "json"})]

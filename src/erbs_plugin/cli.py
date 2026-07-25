@@ -8,7 +8,7 @@ from pathlib import Path
 from .api import query
 from .assets import cli as assets_cli
 from .config import ERBSConfig
-from .debug import preview_operations, render_card_previews
+from .debug import render_card_previews, render_query_preview
 from .exceptions import (
     AssetMissing,
     ERBSError,
@@ -30,7 +30,6 @@ def _add_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--api-base-url", default="https://er.dakgg.io")
     parser.add_argument("--language", default="zh-CN")
-    parser.add_argument("--asset-directory", type=Path)
     parser.add_argument("--browser-path", type=Path)
 
 
@@ -60,13 +59,61 @@ def _add_assets_commands(
 def _add_debug_commands(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    debug = subparsers.add_parser("debug", help="offline card preview tools")
-    commands = debug.add_subparsers(dest="debug_command", required=True)
-    cards = commands.add_parser("cards", help="render representative images for every command")
+    debug = subparsers.add_parser("debug", help="render real command results for visual review")
+    debug.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
+    debug.add_argument("--browser-path", type=Path)
+    debug.add_argument("--scale", type=float, default=1.0)
+    commands = debug.add_subparsers(dest="debug_command")
+    cards = commands.add_parser(
+        "cards", help="run and render all default live commands (compatibility alias)"
+    )
     cards.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
-    cards.add_argument("--only", nargs="+", choices=preview_operations())
     cards.add_argument("--browser-path", type=Path)
     cards.add_argument("--scale", type=float, default=1.0)
+
+    def add_query_options(command: argparse.ArgumentParser) -> None:
+        _add_output_options(command)
+        command.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
+        command.add_argument("--asset-directory", type=Path)
+        command.add_argument("--scale", type=float, default=1.0)
+
+    def add_player_command(name: str, help_text: str) -> argparse.ArgumentParser:
+        command = commands.add_parser(name, help=help_text)
+        command.add_argument("nickname")
+        add_query_options(command)
+        return command
+
+    add_player_command("overview", "render a live player overview")
+    rank = add_player_command("rank", "render live player rank")
+    rank.add_argument("--season")
+    stats = add_player_command("stats", "render live player statistics")
+    stats.add_argument("--season")
+    matches = add_player_command("matches", "render live recent matches")
+    matches.add_argument("--count", type=int, default=5)
+    add_player_command("recent", "render a live recent performance summary")
+    add_player_command("characters", "render live player character statistics")
+    add_player_command("teammates", "render live recent teammates")
+    add_player_command("best-match", "render a live best recent match")
+    add_player_command("hero-pool", "render a live player hero pool")
+    add_player_command("equipment", "render live player equipment habits")
+
+    leaderboard = commands.add_parser("leaderboard", help="render the live leaderboard")
+    leaderboard.add_argument("--page", type=int, default=1)
+    add_query_options(leaderboard)
+
+    character = commands.add_parser("character", help="render live character statistics")
+    character.add_argument("query", nargs="+")
+    character.add_argument("--weapon")
+    add_query_options(character)
+
+    item = commands.add_parser("item", help="render live item details")
+    item.add_argument("query", nargs="+")
+    add_query_options(item)
+
+    routes = commands.add_parser("routes", help="render live saved routes")
+    routes.add_argument("query", nargs="+")
+    routes.add_argument("--weapon")
+    add_query_options(routes)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -85,20 +132,10 @@ def parser() -> argparse.ArgumentParser:
     matches.add_argument("--count", type=int, default=5)
     _add_player_command(subparsers, "recent", "recent performance summary")
     _add_player_command(subparsers, "characters", "player character statistics")
-    _add_player_command(subparsers, "skins", "player skin statistics")
     _add_player_command(subparsers, "teammates", "recent teammates")
     _add_player_command(subparsers, "best-match", "best recent match")
     _add_player_command(subparsers, "hero-pool", "player hero pool")
     _add_player_command(subparsers, "equipment", "player equipment habits")
-
-    multi = subparsers.add_parser("multi", help="query two or three players")
-    multi.add_argument("nicknames", nargs="+")
-    _add_output_options(multi)
-
-    compare = subparsers.add_parser("compare", help="compare two players")
-    compare.add_argument("left")
-    compare.add_argument("right")
-    _add_output_options(compare)
 
     leaderboard = subparsers.add_parser("leaderboard", help="global leaderboard")
     leaderboard.add_argument("--page", type=int, default=1)
@@ -128,23 +165,37 @@ def _config(args: argparse.Namespace) -> ERBSConfig:
         "api_base_url": args.api_base_url,
         "language": args.language,
     }
-    if args.asset_directory is not None:
-        values["asset_directory"] = args.asset_directory
     if args.browser_path is not None:
         values["browser_path"] = args.browser_path
+    if getattr(args, "asset_directory", None) is not None:
+        values["asset_directory"] = args.asset_directory
+    if hasattr(args, "scale"):
+        values["render_scale"] = args.scale
     return ERBSConfig(**values)
 
 
 def _query_arguments(args: argparse.Namespace) -> tuple[str, ...]:
     if hasattr(args, "nickname"):
         return (args.nickname,)
-    if args.operation == "multi":
-        return tuple(args.nicknames)
-    if args.operation == "compare":
-        return (args.left, args.right)
     if args.operation in {"character", "item", "routes"}:
         return (" ".join(args.query),)
     return ()
+
+
+def _debug_query_arguments(args: argparse.Namespace) -> tuple[str, ...]:
+    if hasattr(args, "nickname"):
+        return (args.nickname,)
+    if args.debug_command in {"character", "item", "routes"}:
+        return (" ".join(args.query),)
+    return ()
+
+
+def _emit_result(result: str | bytes | Path) -> None:
+    if isinstance(result, bytes):
+        sys.stdout.buffer.write(result)
+        sys.stdout.buffer.flush()
+    else:
+        print(result)
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -159,12 +210,42 @@ async def run(args: argparse.Namespace) -> int:
             return await assets_cli.run(asset_args)
 
         if args.operation == "debug":
-            build = await render_card_previews(
-                args.output_directory,
-                operations=args.only,
-                config=ERBSConfig(browser_path=args.browser_path, render_scale=args.scale),
+            if args.debug_command in {None, "cards"}:
+                build = await render_card_previews(
+                    args.output_directory,
+                    config=ERBSConfig(browser_path=args.browser_path, render_scale=args.scale),
+                )
+                print(
+                    f"refreshed {len(build.images)} card previews; "
+                    f"gallery contains {build.gallery_count} results: {build.index}"
+                )
+                return 0
+            if args.format == "path" and args.output is None:
+                raise InvalidQuery("--output is required when --format path is used")
+            if args.format != "path" and args.output is not None:
+                raise InvalidQuery("--output is only valid with --format path")
+            if getattr(args, "page", 1) < 1:
+                raise InvalidQuery("--page must be greater than zero")
+            build = await render_query_preview(
+                args.debug_command,
+                *_debug_query_arguments(args),
+                output_directory=args.output_directory,
+                config=_config(args),
+                format=args.format,
+                output=args.output,
+                count=getattr(args, "count", 5),
+                page=getattr(args, "page", 1),
+                season=getattr(args, "season", None),
+                weapon=getattr(args, "weapon", None),
             )
-            print(f"rendered {len(build.images)} card previews: {build.index}")
+            if build.result is None:
+                raise RuntimeError("debug query did not return a result")
+            _emit_result(build.result)
+            print(
+                f"debug preview saved: {build.primary_image}; "
+                f"gallery contains {build.gallery_count} results: {build.index}",
+                file=sys.stderr,
+            )
             return 0
 
         if args.format == "path" and args.output is None:
@@ -204,11 +285,7 @@ async def run(args: argparse.Namespace) -> int:
         print(f"unexpected error: {exc}", file=sys.stderr)
         return 1
 
-    if isinstance(result, bytes):
-        sys.stdout.buffer.write(result)
-        sys.stdout.buffer.flush()
-    else:
-        print(result)
+    _emit_result(result)
     return 0
 
 
