@@ -66,7 +66,7 @@ png_path = await player_overview(
 )
 ```
 
-Available functions cover player overview, rank, statistics, matches, recent performance,
+Available functions cover player overview, rank, statistics, matches, recent performance, radar,
 characters, teammates, best matches, hero pools, equipment habits, leaderboards, character
 statistics, items, and routes. The generic `query()` function exposes the same supported operations
 through a single entry point.
@@ -74,6 +74,12 @@ through a single entry point.
 Long-running consumers can pass an existing `AsyncERBSClient` and `HtmlCardRenderer`; resources
 supplied by the caller remain owned by the caller. The lower-level client, service, model, analysis,
 and renderer classes remain public for advanced use.
+
+Successful high-level queries are cached in a private SQLite database under the current user's
+platform data directory. Cache expiry is configured independently for every query operation through
+`ERBSConfig.query_cache_seconds`; cache identity also includes arguments, language, and API endpoint.
+Every result includes `footer.updatedAt`; cache hits additionally include `footer.cached=true` and a
+human-readable `footer.notice` warning that the data may not be current.
 
 See [QUICK_START.md](QUICK_START.md) and [docs/integration.md](docs/integration.md).
 

@@ -7,6 +7,7 @@ This guide covers development and troubleshooting for the standalone ERBS-plugin
 ```text
 CLI or Python caller
   -> functional API and operation dispatcher
+  -> private SQLite query cache with per-operation TTLs
   -> ERBSService and ERBSAnalysisService
   -> AsyncERBSClient and in-process caches
   -> TextRenderer or HtmlCardRenderer
@@ -48,15 +49,18 @@ uv run erbs debug
 Prepare assets first with `uv run erbs assets download --directory ./assets`. Required debug image
 assets are strict: a missing file raises `AssetMissing` instead of silently rendering a placeholder.
 
-The command executes all 14 user-accessible default queries against the configured DAK.GG endpoint, then writes
-their PNG results, `manifest.json`, and a browser-friendly contact sheet to `.debug/cards/`.
+The command renders all 17 supported default query cards, then writes their PNG results,
+`manifest.json`, and a browser-friendly contact sheet to `.debug/cards/`.
 Open `.debug/cards/index.html`, adjust
 `src/erbs_plugin/rendering/templates/card.html` or `card.css`, and rerun the command to refresh the
 whole set.
 
-Every bare `erbs debug` run reruns and refreshes all supported default command cards. The former
-`--only` interface has been removed so visual reviews cannot accidentally omit layouts. `erbs
-debug cards` remains as a compatibility alias for the same full live refresh.
+Every bare `erbs debug` run rerenders all supported default command cards. Debug and normal queries
+share the private SQLite query database when the operation, arguments, language, and API endpoint
+match, so template iterations do not repeatedly call DAK.GG. Pass `--refresh-data` to replace
+matching cached payloads with fresh network results. The former `--only` interface has been removed
+so visual reviews cannot accidentally omit layouts. `erbs debug cards` remains as a compatibility
+alias for the same full rerender.
 
 The default players are `B站丨咕咕禽OC`, `Preme`, and `페이블`. Player commands use the first
 player.
@@ -79,6 +83,17 @@ a new query command or section layout is introduced; player-facing preview data 
 handwritten.
 
 ## Query failures
+
+Successful high-level queries are persisted to `ERBSConfig.private_database_path`, which defaults to
+the current user's platform data directory. Each operation has its own TTL in
+`query_cache_seconds`; expired rows are removed lazily, cache hits update `last_accessed_at`, and the
+oldest rows are bounded by `query_cache_max_entries`. SQLite failures are treated as cache misses so
+the private cache cannot make an otherwise healthy network query fail.
+
+The high-level query boundary stamps every fresh payload with `footer.updatedAt` before it is stored.
+Database hits retain the original timestamp and add `footer.cached=true` plus a localized
+`footer.notice`. Player source synchronization timestamps remain available separately as
+`footer.sourceUpdatedAt`.
 
 `AsyncERBSClient` defaults to `https://er.dakgg.io`, an 8-second timeout, two bounded exponential
 retries, and bounded concurrency. It retries transient transport failures, 408/425/429 responses,

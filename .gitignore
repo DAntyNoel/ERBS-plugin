@@ -3,6 +3,7 @@
 .ruff_cache/
 .pytest_cache/
 .debug/
+/player.png
 __pycache__/
 *.py[cod]
 dist/

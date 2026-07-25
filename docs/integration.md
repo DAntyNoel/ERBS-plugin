@@ -28,6 +28,10 @@ png_path = await query(
 
 The named functions expose the same contract with operation-specific arguments.
 
+All high-level results include an ISO 8601 `footer.updatedAt` value. Cached results preserve the
+original information timestamp and add `footer.cached=true` plus `footer.notice`; consumers should
+surface that notice when presenting cached JSON outside the bundled card renderer.
+
 ## Resource ownership
 
 - When no client or renderer is supplied, the function creates and closes its own resources.
@@ -44,6 +48,7 @@ Service methods return `CardPayload`, which can be rendered using `TextRenderer`
 
 ## Operational boundary
 
-The package reads public data, maintains in-process request caches, resolves local assets, and
-renders cards. It does not manage external users, persistent application state, permissions,
-scheduling, command syntax, or message delivery.
+The package reads public data, maintains in-process request caches and a private SQLite query-result
+cache in the current user's platform data directory, resolves local assets, and renders cards. It
+does not manage external-user identities, preferences, permissions, scheduling, command syntax, or
+message delivery. Configure the database path and per-operation TTLs with `ERBSConfig`.

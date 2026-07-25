@@ -78,6 +78,7 @@ erbs matches "B站丨咕咕禽OC" --count 5
 erbs rank PLAYER
 erbs stats PLAYER
 erbs recent PLAYER
+erbs radar PLAYER --count 20
 erbs characters PLAYER
 erbs teammates PLAYER
 erbs best-match PLAYER
@@ -122,7 +123,7 @@ erbs overview PLAYER --format path --output ./player.png --browser-path "C:\Prog
 
 ## 4. Debug 图片预览
 
-裸 `debug` 命令会刷新全部 14 个用户可用接口的默认图片，并生成浏览器可查看的总览：
+裸 `debug` 命令会重新渲染全部 18 个接口的默认图片，并生成浏览器可查看的总览：
 
 ```bash
 erbs debug
@@ -130,12 +131,20 @@ erbs debug
 
 输出目录默认为 `.debug/cards/`，其中包含：
 
-- 14 张默认接口 PNG
+- 18 张默认接口 PNG
 - `manifest.json`
 - 图片总览 `index.html`
 
 `erbs debug cards` 是相同功能的兼容别名。默认样例玩家为 `B站丨咕咕禽OC`、`Preme`
 和 `페이블`。
+
+Debug 与普通查询共用当前用户私有目录中的 SQLite 查询数据库，因此修改模板后反复渲染不会
+重复请求网络。需要获取最新数据时显式刷新缓存：
+
+```bash
+erbs debug --refresh-data
+erbs debug overview "B站丨咕咕禽OC" --refresh-data
+```
 
 可以调整输出目录和渲染缩放：
 
@@ -152,6 +161,37 @@ erbs debug matches "B站丨咕咕禽OC" --count 10
 
 真实 debug 查询的标准输出与普通命令一致；预览图片保存位置写到标准错误，不会污染 JSON
 或 PNG 字节输出。
+
+### 私有查询数据库与过期时间
+
+每次成功查询都会写入 `ERBSConfig.private_database_path` 指向的 SQLite 数据库。默认位置由
+`platformdirs` 选择，例如 Windows 下为
+`%LOCALAPPDATA%\erbs-plugin\private-query-cache.sqlite3`。数据库仅保存于当前系统用户的私有
+数据目录，缓存键包含接口、参数、语言和 API 地址，默认最多保留 512 条结果。
+
+| 查询 | 默认 TTL | 查询 | 默认 TTL |
+| --- | ---: | --- | ---: |
+| `leaderboard` | 60 秒 | `matches` | 120 秒 |
+| `recent` | 120 秒 | `best-match` | 120 秒 |
+| `radar` | 180 秒 |  |  |
+| `rank` | 180 秒 | `overview` | 300 秒 |
+| `teammates` | 300 秒 | `multi` | 300 秒 |
+| `compare` | 300 秒 | `stats` | 600 秒 |
+| `routes` | 600 秒 | `characters` | 900 秒 |
+| `hero-pool` | 900 秒 | `equipment` | 900 秒 |
+| `skins` | 1800 秒 | `character` | 1800 秒 |
+| `item` | 86400 秒 |  |  |
+
+可通过 `ERBSConfig(query_cache_seconds={...})` 为每一种查询覆盖 TTL，通过
+`private_database_path` 修改数据库位置。所有查询结果都会包含 `footer.updatedAt` 信息更新
+时间；缓存命中时还会返回 `footer.cached=true` 和
+`footer.notice="缓存命中，数据可能不是最新"`。玩家数据自带的上游同步时间保存在
+`footer.sourceUpdatedAt`。
+
+图片页脚会将 `footer.updatedAt` 转换为固定时区后显示。默认配置为
+`ERBSConfig(render_timezone_name="CST", render_timezone_offset_hours=8)`，显示格式为
+`7月25日 23:16:03`；时区文字不会出现在图片中。该转换只影响图片，不改变 JSON 中的
+ISO 8601 时间。
 
 ## 5. Python 高层 API
 
@@ -192,7 +232,7 @@ result = await query("matches", "B站丨咕咕禽OC", count=10, format="json")
 可直接导入的查询函数包括：
 
 - `player_overview`
-- `rank`、`stats`、`matches`、`recent`
+- `rank`、`stats`、`matches`、`recent`、`radar`
 - `characters`、`teammates`
 - `best_match`、`hero_pool`、`equipment`
 - `leaderboard`、`character`、`item`、`routes`
@@ -296,8 +336,8 @@ erbs assets check --directory ./assets
 
 ### 请求失败或返回限流
 
-客户端默认启用进程内缓存、有限重试和并发限制。遇到持续限流时，应降低调用频率，不要
-立即高并发重试。
+客户端默认启用进程内缓存，高层查询同时使用带独立 TTL 的私有 SQLite 缓存；网络请求仍有
+有限重试和并发限制。遇到持续限流时，应降低调用频率，不要立即高并发重试。
 
 ## 9. 下一步
 
