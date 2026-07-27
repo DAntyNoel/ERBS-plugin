@@ -26,7 +26,7 @@ def test_package_has_no_consumer_framework_imports() -> None:
 
 
 def test_repository_docs_are_consumer_neutral() -> None:
-    paths = [ROOT / "README.md", ROOT / "QUICK_START.md", *sorted((ROOT / "docs").glob("*.md"))]
+    paths = [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
     violations: list[str] = []
     for path in paths:
         text = path.read_text(encoding="utf-8").casefold()

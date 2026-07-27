@@ -1,14 +1,14 @@
 # ERBS-plugin
 
-[English](README.md) · [中文快速开始](QUICK_START.md)
+[English](../README.md) · [中文快速开始](QUICK_START.md)
 
-ERBS-plugin 是一个独立、框架无关的 Python 包，用于查询《永恒轮回》公开数据、进行分析、输出 JSON、管理本地图片资源，并渲染 PNG 数据卡片。
+ERBS-plugin 是面向中文互联网服务的机器人插件。用于查询《永恒轮回》公开数据、进行分析、输出 JSON、管理本地图片资源，并渲染 PNG 数据卡片。
 
-它不解析机器人平台事件，不保存应用用户绑定关系，不实现应用级冷却，也不直接发送消息。调用方可使用 Python API 或命令行，并自行决定如何展示 JSON 文本或 PNG 图片。
+本项目为个人开发项目，仅供**学习、交流与参考**，且不保证持续稳定更新。若有侵权或代码问题，请联系我进行删除或修改。
 
 ## 安装
 
-需要 Python 3.12。
+Python >= 3.12
 
 ```bash
 pip install erbs-plugin
@@ -25,8 +25,8 @@ pip install 'erbs-plugin[render]'
 直接查询 JSON：
 
 ```bash
-erbs overview eternalreturn
-erbs matches eternalreturn --count 10
+erbs overview playername
+erbs matches playername --count 10
 ```
 
 下载本地资源并生成 PNG：
@@ -34,13 +34,13 @@ erbs matches eternalreturn --count 10
 ```bash
 erbs assets download --directory ./data/erbs-assets
 erbs assets check --directory ./data/erbs-assets
-erbs overview eternalreturn --format path --output ./player.png
+erbs overview playername --format path --output ./player.png
 ```
 
 也可以将 PNG 字节输出重定向到文件：
 
 ```bash
-erbs overview eternalreturn --format bytes > player.png
+erbs overview playername --format bytes > player.png
 ```
 
 同一命令行也可通过 `python -m erbs_plugin` 调用；`erbs-assets` 命令为兼容既有使用方式而保留。更多命令、调试和配置示例见[中文快速开始](QUICK_START.md)。
@@ -52,10 +52,10 @@ erbs overview eternalreturn --format bytes > player.png
 ```python
 from erbs_plugin import player_overview
 
-json_text = await player_overview("eternalreturn", format="json")
-png_bytes = await player_overview("eternalreturn", format="bytes")
+json_text = await player_overview("playername", format="json")
+png_bytes = await player_overview("playername", format="bytes")
 png_path = await player_overview(
-    "eternalreturn",
+    "playername",
     format="path",
     output="player.png",
 )
@@ -75,8 +75,8 @@ png_path = await player_overview(
 
 ## 免责声明与商标
 
-ERBS-plugin 是非官方项目，与 Nimble Neuron 没有隶属或背书关系。《永恒轮回》为 Nimble Neuron 的商标。项目内的双行中英文文字标为本项目独立生成的视觉素材，并非官方游戏 logo。
+ERBS-plugin 是非官方项目，与 Nimble Neuron 没有隶属关系。《永恒轮回》为 Nimble Neuron 的商标。项目内的双行中英文文字标为本项目独立生成的视觉素材，并非官方游戏 logo。
 
 ## 许可证
 
-本项目采用 Apache-2.0 许可证。第三方参考、字体许可与相关声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目采用 Apache-2.0 许可证。第三方参考、字体许可与相关声明见 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)。

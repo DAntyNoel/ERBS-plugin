@@ -341,6 +341,6 @@ erbs assets check --directory ./assets
 
 ## 9. 下一步
 
-- 集成约定与资源所有权：[docs/integration.md](docs/integration.md)
-- 开发、测试和 debug 工作流：[docs/developer-help.md](docs/developer-help.md)
-- 项目概览：[README.md](README.md)
+- 集成约定与资源所有权：[integration.md](integration.md)
+- 开发、测试和 debug 工作流：[developer-help.md](developer-help.md)
+- 项目概览：[README.md](../README.md)

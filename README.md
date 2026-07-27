@@ -1,17 +1,17 @@
 # ERBS-plugin
 
-[中文说明](README.zh-CN.md) · [中文快速开始](QUICK_START.md)
+[中文说明](docs/README.zh-CN.md) · [中文快速开始](docs/QUICK_START.md)
 
-ERBS-plugin is an independent, framework-neutral Python package for Eternal Return data queries,
-analysis, JSON output, local asset management, and PNG card rendering.
+ERBS-plugin is a bot plugin for Chinese internet services. It queries public Eternal Return data,
+performs analysis, produces JSON output, manages local image assets, and renders PNG data cards.
 
-It does not parse application events, store application-user bindings, enforce application-level
-cooldowns, or send messages. Consumers import its Python API or invoke its command-line interface
-and decide how to present the returned JSON text or PNG data.
+This is a personal project intended only for learning, discussion, and reference. Ongoing updates
+and availability are not guaranteed. Please contact the author to request removal or correction of
+any infringing material or code issue.
 
 ## Install
 
-Python 3.12 is required.
+Python >= 3.12 is required.
 
 ```bash
 pip install erbs-plugin
@@ -29,8 +29,8 @@ pip install 'erbs-plugin[render]'
 Query JSON directly:
 
 ```bash
-erbs overview eternalreturn
-erbs matches eternalreturn --count 10
+erbs overview playername
+erbs matches playername --count 10
 ```
 
 Prepare local assets and render a PNG file:
@@ -38,7 +38,7 @@ Prepare local assets and render a PNG file:
 ```bash
 erbs assets download --directory ./data/erbs-assets
 erbs assets check --directory ./data/erbs-assets
-erbs overview eternalreturn \
+erbs overview playername \
   --format path \
   --output ./player.png
 ```
@@ -59,10 +59,10 @@ The recommended API consists of async query functions:
 ```python
 from erbs_plugin import player_overview
 
-json_text = await player_overview("eternalreturn", format="json")
-png_bytes = await player_overview("eternalreturn", format="bytes")
+json_text = await player_overview("playername", format="json")
+png_bytes = await player_overview("playername", format="bytes")
 png_path = await player_overview(
-    "eternalreturn",
+    "playername",
     format="path",
     output="player.png",
 )
@@ -73,9 +73,14 @@ characters, teammates, best matches, hero pools, equipment habits, leaderboards,
 statistics, items, and routes. The generic `query()` function exposes the same supported operations
 through a single entry point.
 
-Long-running consumers can pass an existing `AsyncERBSClient` and `HtmlCardRenderer`; resources
-supplied by the caller remain owned by the caller. The lower-level client, service, model, analysis,
-and renderer classes remain public for advanced use.
+Long-running applications can reuse `AsyncERBSClient` and `HtmlCardRenderer`; resources supplied by
+the caller remain owned by the caller.
+
+## Data, cache, and assets
+
+Data is read from public DAK.GG Eternal Return endpoints used by its public website. The package
+does not invoke player refresh, authentication, management, or write endpoints. Consumers should
+use conservative request rates and display `Data source: DAK.GG` where appropriate.
 
 Successful high-level queries are cached in a private SQLite database under the current user's
 platform data directory. Cache expiry is configured independently for every query operation through
@@ -83,17 +88,15 @@ platform data directory. Cache expiry is configured independently for every quer
 Every result includes `footer.updatedAt`; cache hits additionally include `footer.cached=true` and a
 human-readable `footer.notice` warning that the data may not be current.
 
-See [QUICK_START.md](QUICK_START.md) and [docs/integration.md](docs/integration.md).
-
-## Data source and boundaries
-
-Data is read from public DAK.GG Eternal Return endpoints used by its public website. The package
-does not invoke player refresh, authentication, management, or write endpoints. Consumers should
-use conservative request rates and display `Data source: DAK.GG` where appropriate.
-
 Runtime rendering searches the current directory and its parents for downloaded local assets. It
 reuses matching files and falls back to the bundled placeholder when an image is missing; it never
 downloads missing assets implicitly.
+
+## Disclaimer and trademarks
+
+ERBS-plugin is an unofficial project and is not affiliated with Nimble Neuron. Eternal Return is a
+trademark of Nimble Neuron. The bundled two-line Chinese/English wordmark is independently generated
+for this project and is not an official Eternal Return logo.
 
 ## License
 
