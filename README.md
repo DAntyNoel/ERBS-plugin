@@ -1,5 +1,7 @@
 # ERBS-plugin
 
+[中文说明](README.zh-CN.md) · [中文快速开始](QUICK_START.md)
+
 ERBS-plugin is an independent, framework-neutral Python package for Eternal Return data queries,
 analysis, JSON output, local asset management, and PNG card rendering.
 
