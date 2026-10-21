@@ -8,13 +8,13 @@ ERBS-plugin 是面向中文互联网服务的机器人插件。用于查询《�
 
 ## 安装
 
-Python >= 3.12
+Python 3.12
 
 ```bash
 pip install erbs-plugin
 ```
 
-生成 PNG 还需安装渲染依赖，并在系统中已有 Chrome、Edge 或 Chromium：
+生成 PNG 使用原生 Skia 绘图，安装渲染依赖即可：
 
 ```bash
 pip install 'erbs-plugin[render]'
@@ -29,11 +29,9 @@ erbs overview playername
 erbs matches playername --count 10
 ```
 
-下载本地资源并生成 PNG：
+生成 PNG（所需 CDN 图片会按需缓存）：
 
 ```bash
-erbs assets download --directory ./data/erbs-assets
-erbs assets check --directory ./data/erbs-assets
 erbs overview playername --format path --output ./player.png
 ```
 
@@ -63,7 +61,26 @@ png_path = await player_overview(
 
 可查询玩家总览、段位、统计、对局、近期表现、雷达图、角色、队友、最佳对局、英雄池、装备习惯、排行榜、角色统计、物品和路线。通用 `query()` 函数也支持相同操作。
 
-长生命周期应用可复用 `AsyncERBSClient` 与 `HtmlCardRenderer`；由调用方传入的资源仍由调用方负责关闭。
+长生命周期应用可复用 `AsyncERBSClient` 与 `SkiaCardRenderer`；由调用方传入的资源仍由调用方负责关闭。
+
+## LoMu 风格查询与迁移
+
+```bash
+erbs command '/查询玩家 玩家名称 排位'
+erbs command '/查询角色 席琳 排位 灭钻' --format path --output celine.png
+erbs command '/查询角色装备 席琳'
+erbs command '/角色数据 星陨'
+erbs command '/段位统计 国服'
+erbs command '/永恒多少分 亚1'
+erbs command '/查询装备 烈阳'
+erbs command '/帮助'
+```
+
+新查询复用已有客户端、缓存、元数据和评分逻辑。完整命令、Python API 与数据口径见
+[DAK.GG 查询与迁移说明](DAK_QUERIES.zh-CN.md)。
+
+旧 HTML/CSS 绘图、主题、字体和 SVG 雷达坐标计算已归档到
+[legacy](../src/erbs_plugin/legacy/README.md)，默认绘图使用 `SkiaCardRenderer`。
 
 ## 数据、缓存与资源
 
@@ -71,7 +88,7 @@ png_path = await player_overview(
 
 成功的高层查询会缓存到当前系统用户的平台数据目录中的私有 SQLite 数据库。每种查询可分别通过 `ERBSConfig.query_cache_seconds` 配置过期时间；缓存键包含查询参数、语言和 API 地址。所有结果都有 `footer.updatedAt`，缓存命中还会提供 `footer.cached=true` 与数据可能非最新的提示。
 
-渲染时会在当前目录及其父目录中查找已下载的本地资源，匹配时复用；缺失时使用包内占位图。运行时不会隐式下载图片资源。
+PNG 渲染会复用本地资源清单，仅按需下载当前结果引用的 `cdn.dak.gg` 图片；失败时使用占位图。JSON 查询不下载图片。设置 `ERBSConfig(download_render_assets=False)` 可仅使用本地素材。
 
 ## 免责声明与商标
 

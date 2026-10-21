@@ -12,15 +12,16 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
-from ..assets import AssetManager
-from ..config import ERBSConfig
-from ..exceptions import RenderFailed
-from ..models import CardPayload
+from ...assets import AssetManager
+from ...config import ERBSConfig
+from ...exceptions import RenderFailed
+from ...models import CardPayload
+from ..radar import with_radar_geometry
 
 
 @cache
 def _theme_asset(name: str, media_type: str) -> str:
-    path = files("erbs_plugin.rendering").joinpath("theme", name)
+    path = files("erbs_plugin.legacy.rendering").joinpath("theme", name)
     encoded = base64.b64encode(path.read_bytes()).decode("ascii")
     return f"data:{media_type};base64,{encoded}"
 
@@ -29,9 +30,7 @@ def _theme() -> dict[str, str]:
     return {
         "logo": _theme_asset("eternal-return-logo.png", "image/png"),
         "bot_avatar": _theme_asset("erbs-bot.gif", "image/gif"),
-        "player_emblem_background": _theme_asset(
-            "player-emblem-background.png", "image/png"
-        ),
+        "player_emblem_background": _theme_asset("player-emblem-background.png", "image/png"),
         "font_semibold": _theme_asset("Rajdhani-SemiBold.ttf", "font/ttf"),
         "font_bold": _theme_asset("Rajdhani-Bold.ttf", "font/ttf"),
     }
@@ -56,9 +55,7 @@ def _footer_display_time(value: Any, config: ERBSConfig) -> tuple[str, str] | No
     )
     localized = parsed.astimezone(fixed_timezone)
     offset_sign = "+" if offset_hours >= 0 else "-"
-    timezone_text = (
-        f"{config.render_timezone_name} GMT{offset_sign}{abs(offset_hours)}"
-    )
+    timezone_text = f"{config.render_timezone_name} GMT{offset_sign}{abs(offset_hours)}"
     return f"{localized.month}月{localized.day}日 {localized:%H:%M:%S}", timezone_text
 
 
@@ -84,7 +81,7 @@ class HtmlCardRenderer:
         try:
             from playwright.async_api import async_playwright
         except ImportError as exc:
-            raise RenderFailed("请安装 erbs-plugin[render]") from exc
+            raise RenderFailed("请安装 erbs-plugin[legacy-render]") from exc
         browser_path = self.config.browser_path or self.discover_browser()
         if browser_path is None:
             raise RenderFailed("未找到 Chrome、Edge 或 Chromium")
@@ -128,13 +125,13 @@ class HtmlCardRenderer:
         try:
             from jinja2 import Environment, StrictUndefined
         except ImportError as exc:
-            raise RenderFailed("请安装 erbs-plugin[render]") from exc
-        template_dir = files("erbs_plugin.rendering").joinpath("templates")
+            raise RenderFailed("请安装 erbs-plugin[legacy-render]") from exc
+        template_dir = files("erbs_plugin.legacy.rendering").joinpath("templates")
         template_text = template_dir.joinpath("card.html").read_text(encoding="utf-8")
         style_text = template_dir.joinpath("card.css").read_text(encoding="utf-8")
         env = Environment(autoescape=True, undefined=StrictUndefined)
         theme = _theme()
-        card = self._localize_images(asdict(payload))
+        card = self._localize_images(with_radar_geometry(asdict(payload)))
         footer = card.get("footer")
         if isinstance(footer, dict):
             display_time = _footer_display_time(footer.get("updatedAt"), self.config)
@@ -150,9 +147,11 @@ class HtmlCardRenderer:
         try:
             await page.route(
                 "**/*",
-                lambda route: route.abort()
-                if route.request.url.startswith(("http://", "https://"))
-                else route.continue_(),
+                lambda route: (
+                    route.abort()
+                    if route.request.url.startswith(("http://", "https://"))
+                    else route.continue_()
+                ),
             )
             await page.set_content(html, wait_until="load")
             await page.evaluate("document.fonts.ready")

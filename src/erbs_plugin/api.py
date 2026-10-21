@@ -6,10 +6,17 @@ from typing import Literal, overload
 
 from .cache import QueryCacheDatabase, annotate_query_payload, query_cache_spec
 from .client import AsyncERBSClient
+from .commands import (
+    normalize_mode,
+    normalize_operation,
+    normalize_server,
+    normalize_tier,
+    parse_command,
+)
 from .config import ERBSConfig
 from .exceptions import InvalidQuery
 from .models import CardPayload
-from .rendering import HtmlCardRenderer, TextRenderer
+from .rendering import CardRenderer, SkiaCardRenderer, TextRenderer
 from .services import ERBSService
 
 type OutputFormat = Literal["json", "bytes", "path"]
@@ -33,19 +40,17 @@ type QueryOperation = Literal[
     "character",
     "item",
     "routes",
+    "search",
+    "character-stats",
+    "character-equipment",
+    "tier-stats",
+    "tier-cutoffs",
+    "help",
 ]
-
-_OPERATION_ALIASES = {
-    "player": "overview",
-    "player-overview": "overview",
-    "best_match": "best-match",
-    "hero_pool": "hero-pool",
-}
 
 
 def _normalize_operation(operation: str) -> str:
-    normalized = operation.strip().casefold().replace("_", "-")
-    return _OPERATION_ALIASES.get(normalized, normalized)
+    return normalize_operation(operation)
 
 
 def _require_arguments(operation: str, arguments: tuple[str, ...], count: int) -> None:
@@ -63,8 +68,30 @@ async def _payload_for(
     page: int,
     season: str | None,
     weapon: str | None,
+    mode: str,
+    tier: str,
+    server: str,
 ) -> CardPayload:
     operation = _normalize_operation(operation)
+    if operation == "help":
+        _require_arguments(operation, arguments, 0)
+        return service.help_card()
+    if operation == "search":
+        _require_arguments(operation, arguments, 1)
+        return await service.search_player_card(arguments[0], mode=mode, count=count, season=season)
+    if operation == "character-equipment":
+        _require_arguments(operation, arguments, 1)
+        return await service.character_analysis_card(
+            arguments[0], weapon=weapon, mode=mode, tier=tier, equipment_only=True
+        )
+    if operation == "character-stats":
+        _require_arguments(operation, arguments, 0)
+        return await service.character_stats_card(mode=mode, tier=tier)
+    if operation in {"tier-stats", "tier-cutoffs"}:
+        _require_arguments(operation, arguments, 0)
+        return await service.tier_statistics_card(
+            server=server, cutoffs_only=operation == "tier-cutoffs"
+        )
     if operation == "overview":
         _require_arguments(operation, arguments, 1)
         return await service.player_overview(arguments[0])
@@ -111,7 +138,7 @@ async def _payload_for(
         return await service.leaderboard_card(page=page)
     if operation == "character":
         _require_arguments(operation, arguments, 1)
-        return await service.character_card(arguments[0], weapon=weapon)
+        return await service.character_card(arguments[0], weapon=weapon, mode=mode, tier=tier)
     if operation == "item":
         _require_arguments(operation, arguments, 1)
         return await service.item_card(arguments[0])
@@ -127,7 +154,7 @@ async def _render_output(
     format: OutputFormat,
     output: str | Path | None,
     config: ERBSConfig,
-    renderer: HtmlCardRenderer | None,
+    renderer: CardRenderer | None,
 ) -> QueryOutput:
     if format == "json":
         if output is not None:
@@ -141,7 +168,7 @@ async def _render_output(
         raise InvalidQuery("output is required when format='path'")
 
     owned_renderer = renderer is None
-    active_renderer = renderer or HtmlCardRenderer(config)
+    active_renderer = renderer or SkiaCardRenderer(config)
     try:
         image = await active_renderer.render(payload)
     finally:
@@ -179,11 +206,14 @@ async def query(
     output: None = None,
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
-    renderer: HtmlCardRenderer | None = None,
+    renderer: CardRenderer | None = None,
     count: int = 5,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
+    mode: str = "RANK",
+    tier: str = "diamond_plus",
+    server: str = "seoul",
 ) -> str: ...
 
 
@@ -195,11 +225,14 @@ async def query(
     output: None = None,
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
-    renderer: HtmlCardRenderer | None = None,
+    renderer: CardRenderer | None = None,
     count: int = 5,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
+    mode: str = "RANK",
+    tier: str = "diamond_plus",
+    server: str = "seoul",
 ) -> bytes: ...
 
 
@@ -211,11 +244,14 @@ async def query(
     output: str | Path,
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
-    renderer: HtmlCardRenderer | None = None,
+    renderer: CardRenderer | None = None,
     count: int = 5,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
+    mode: str = "RANK",
+    tier: str = "diamond_plus",
+    server: str = "seoul",
 ) -> Path: ...
 
 
@@ -226,11 +262,14 @@ async def query(
     output: str | Path | None = None,
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
-    renderer: HtmlCardRenderer | None = None,
+    renderer: CardRenderer | None = None,
     count: int = 5,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
+    mode: str = "RANK",
+    tier: str = "diamond_plus",
+    server: str = "seoul",
 ) -> QueryOutput:
     """Run one ERBS query and return JSON text, PNG bytes, or a PNG path."""
 
@@ -242,6 +281,7 @@ async def query(
         raise InvalidQuery("output is only supported when format='path'")
 
     normalized_operation = _normalize_operation(operation)
+    mode, tier, server = normalize_mode(mode), normalize_tier(tier), normalize_server(server)
     active_config = config or (client.config if client is not None else ERBSConfig())
     cache_ttl = active_config.query_cache_ttl(normalized_operation)
     query_database: QueryCacheDatabase | None = None
@@ -261,6 +301,12 @@ async def query(
             page=page,
             season=season,
             weapon=weapon,
+            mode=mode,
+            tier=tier,
+            server=server,
+            web_base_url=active_config.web_base_url,
+            ercraft_api_fallback=active_config.ercraft_api_fallback,
+            ercraft_api_base_url=active_config.ercraft_api_base_url,
         )
         payload = await query_database.get(cache_spec)
 
@@ -277,6 +323,9 @@ async def query(
                 page=page,
                 season=season,
                 weapon=weapon,
+                mode=mode,
+                tier=tier,
+                server=server,
             )
             payload = annotate_query_payload(payload)
             if query_database is not None and cache_spec is not None:
@@ -366,7 +415,44 @@ async def routes(character_query: str, **options: object) -> QueryOutput:
     return await query("routes", character_query, **options)  # type: ignore[arg-type]
 
 
+async def search(nickname: str, **options: object) -> QueryOutput:
+    options.setdefault("count", 20)
+    return await query("search", nickname, **options)  # type: ignore[arg-type]
+
+
+async def character_stats(**options: object) -> QueryOutput:
+    return await query("character-stats", **options)  # type: ignore[arg-type]
+
+
+async def character_equipment(query_text: str, **options: object) -> QueryOutput:
+    return await query("character-equipment", query_text, **options)  # type: ignore[arg-type]
+
+
+async def tier_stats(**options: object) -> QueryOutput:
+    return await query("tier-stats", **options)  # type: ignore[arg-type]
+
+
+async def tier_cutoffs(**options: object) -> QueryOutput:
+    return await query("tier-cutoffs", **options)  # type: ignore[arg-type]
+
+
+async def execute_command(text: str, **options: object) -> QueryOutput:
+    """Execute a slash command without coupling the library to a chat framework."""
+    command = parse_command(text)
+    filters = {"mode": command.mode, "tier": command.tier, "server": command.server}
+    filters.update(options)
+    if command.operation == "search":
+        filters.setdefault("count", 20)
+    return await query(command.operation, *command.arguments, **filters)  # type: ignore[arg-type]
+
+
 __all__ = [
+    "search",
+    "character_stats",
+    "character_equipment",
+    "tier_stats",
+    "tier_cutoffs",
+    "execute_command",
     "OutputFormat",
     "QueryOperation",
     "QueryOutput",

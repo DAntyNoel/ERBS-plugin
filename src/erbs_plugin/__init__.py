@@ -5,9 +5,12 @@ from .api import (
     QueryOutput,
     best_match,
     character,
+    character_equipment,
+    character_stats,
     characters,
     compare,
     equipment,
+    execute_command,
     hero_pool,
     item,
     leaderboard,
@@ -19,12 +22,16 @@ from .api import (
     rank,
     recent,
     routes,
+    search,
     skins,
     stats,
     teammates,
+    tier_cutoffs,
+    tier_stats,
 )
 from .assets import AssetManager
 from .client import AsyncERBSClient
+from .commands import ParsedCommand, parse_command
 from .config import ERBSConfig
 from .exceptions import (
     AssetMissing,
@@ -37,16 +44,28 @@ from .exceptions import (
 )
 from .models import CardPayload, FetchMeta, MatchRecord, PlayerProfile
 from .radar import (
-    DEFAULT_SCORING_PROFILE,
     RadarDataSource,
     RadarProfile,
     RadarScorer,
     aggregate_radar_metrics,
 )
-from .rendering import HtmlCardRenderer, TextRenderer
+from .rendering import CardRenderer, SkiaCardRenderer, TextRenderer
+from .scoring import (
+    AXES_VERSION,
+    SCORING_VERSION,
+    build_production_axes,
+    compute_match_grade,
+    score_match,
+)
 from .services import ERBSService
 
 __all__ = [
+    "search",
+    "character_stats",
+    "character_equipment",
+    "tier_stats",
+    "tier_cutoffs",
+    "execute_command",
     "AssetManager",
     "AssetMissing",
     "AsyncERBSClient",
@@ -56,7 +75,10 @@ __all__ = [
     "ERBSError",
     "ERBSService",
     "FetchMeta",
-    "HtmlCardRenderer",
+    "SkiaCardRenderer",
+    "CardRenderer",
+    "ParsedCommand",
+    "parse_command",
     "InvalidQuery",
     "MatchRecord",
     "OutputFormat",
@@ -91,7 +113,11 @@ __all__ = [
     "stats",
     "teammates",
     "aggregate_radar_metrics",
-    "DEFAULT_SCORING_PROFILE",
+    "SCORING_VERSION",
+    "AXES_VERSION",
+    "build_production_axes",
+    "compute_match_grade",
+    "score_match",
 ]
 
 __version__ = "0.1.0"

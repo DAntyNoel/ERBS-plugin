@@ -69,7 +69,11 @@ class FakeService:
             "character",
             ("Abigail",),
             {"weapon": "Axe"},
-            ("character_card", ("Abigail",), {"weapon": "Axe"}),
+            (
+                "character_card",
+                ("Abigail",),
+                {"weapon": "Axe", "mode": "RANK", "tier": "diamond_plus"},
+            ),
         ),
         ("item", ("Mithril Armor",), {}, ("item_card", ("Mithril Armor",), {})),
         (
@@ -107,10 +111,12 @@ def test_query_owns_client_and_renderer_when_not_supplied(monkeypatch) -> None:
     renderer = FakeRenderer()
     service = FakeService()
     monkeypatch.setattr(api_module, "AsyncERBSClient", lambda _: client)
-    monkeypatch.setattr(api_module, "HtmlCardRenderer", lambda _: renderer)
+    monkeypatch.setattr(api_module, "SkiaCardRenderer", lambda _: renderer)
     monkeypatch.setattr(api_module, "ERBSService", lambda _: service)
 
-    result = asyncio.run(api_module.query("overview", "player", format="bytes"))
+    result = asyncio.run(
+        api_module.query("overview", "player", format="bytes", config=client.config)
+    )
 
     assert result == renderer.image
     assert client.close_calls == 1

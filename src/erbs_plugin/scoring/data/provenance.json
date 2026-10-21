@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/adgjmptw2/ERCraft-main",
+  "commit": "93dd2a13345c53e5a6fb271c92d42b9fb62c7761",
+  "license": "MIT",
+  "collectedAt": "2026-06-19",
+  "sourceFiles": {
+    "characterGrade/tier-baselines.v1.json": "b2b525f3cfce78cb4e411776576bba9b4504c2f6b9737ea0aa9965f82c12d6cd",
+    "characterGrade/character-weapon-roles.v1.json": "d272fabec7a2192e745582d2fcc8f582836d72c068cc54c9514f9fe5f44cb1a0",
+    "roleScore/role-score-fallback-baselines.v1.json": "c59b58763f5087d1db7c75ce281e176a3280a3b5e1a07b14454506239e2abe0b",
+    "roleScore/role-score-duration-adjustments.v1.json": "89820bdbcdd3e98ff369df21bb64d3aeb92f14d901a4da9f58c7021e59f421e7",
+    "roleTimeCurve/damage-time-global.v1.json": "df47aed71a648a7a05e045d5b80acba0ad3288c5739fd0fb2d71b107a87245f2"
+  },
+  "limitations": [
+    "Frozen historical baselines and 113 character/weapon mappings.",
+    "Public letter-grade thresholds differ from the current website.",
+    "Local six axes port production-analysis-axes.v1.1; current published v2 axes and comparison distributions are not independently reproduced."
+  ],
+  "axesVersion": "production-analysis-axes.v1.1",
+  "sourceCodeFiles": {
+    "backend/src/services/analysis/productionAnalysisAxes.ts": "e6fbf29b8e414d6b92109c9a7ec0875a3fa26c590616a2380f11dd4874c4766f",
+    "backend/src/services/aggregateGrade.ts": "07dad266d2f769ef7c0cec5fcf8877979518b5bb1ccbb4082f4441e4b2cd1e4f",
+    "backend/src/services/characterPerformanceGrade/config.ts": "dca58d45095dd7e27a8706cc4cbc252c28b63312d1f9012a47c2a9114bd977cc"
+  }
+}

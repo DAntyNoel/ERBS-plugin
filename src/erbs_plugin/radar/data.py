@@ -81,7 +81,7 @@ def _coverage(matches: tuple[Mapping[str, object], ...], fields: tuple[str, ...]
 
 
 class RadarDataSource:
-    """Fetch and aggregate ranked squad match data used by the style radar."""
+    """Fetch ranked squad match data used by performance scoring."""
 
     def __init__(self, client: AsyncERBSClient) -> None:
         self.client = client
@@ -116,9 +116,7 @@ class RadarDataSource:
                 if not isinstance(item, Mapping):
                     continue
                 matching_mode = _integer(item.get("matchingMode"), 3)
-                team_mode = _integer(
-                    item.get("matchingTeamMode", item.get("teamMode")), 3
-                )
+                team_mode = _integer(item.get("matchingTeamMode", item.get("teamMode")), 3)
                 if matching_mode != 3 or team_mode != 3:
                     continue
                 game_id = _integer(item.get("gameId"), 0)
@@ -162,24 +160,16 @@ def aggregate_radar_metrics(sample: RadarSample) -> RadarMetrics:
     values = {
         "damage_to_player_per_min": damage_to_player / safe_minutes,
         "kills_per_10_min": kills / safe_minutes * 10,
-        "pvp_damage_share": damage_to_player
-        / max(1.0, damage_to_player + damage_to_monster),
+        "pvp_damage_share": damage_to_player / max(1.0, damage_to_player + damage_to_monster),
         "damage_from_player_per_min": _sum(matches, "damageFromPlayer") / safe_minutes,
-        "self_sustain_per_min": _sum(
-            matches, "healAmount", "damageOffsetedByShield_Player"
-        )
+        "self_sustain_per_min": _sum(matches, "healAmount", "damageOffsetedByShield_Player")
         / safe_minutes,
         "kill_participation": (kills + assists) / max(1.0, team_kills),
         "assists_per_10_min": assists / safe_minutes * 10,
-        "ally_revives_per_10_games": _sum(matches, "creditRevivedOthersCount")
-        / safe_games
-        * 10,
+        "ally_revives_per_10_games": _sum(matches, "creditRevivedOthersCount") / safe_games * 10,
         "cc_seconds_per_min": _sum(matches, "ccTimeToPlayer") / safe_minutes,
-        "team_support_per_min": _sum(matches, "teamRecover", "protectAbsorb")
-        / safe_minutes,
-        "tactical_uses_per_10_min": _sum(matches, "tacticalSkillUseCount")
-        / safe_minutes
-        * 10,
+        "team_support_per_min": _sum(matches, "teamRecover", "protectAbsorb") / safe_minutes,
+        "tactical_uses_per_10_min": _sum(matches, "tacticalSkillUseCount") / safe_minutes * 10,
         "animals_per_min": _sum(matches, "monsterKill") / safe_minutes,
         "monster_damage_per_min": damage_to_monster / safe_minutes,
         "farm_credit_share": _sum(matches, "crGetAnimal", "crGetMutant")
@@ -201,15 +191,13 @@ def aggregate_radar_metrics(sample: RadarSample) -> RadarMetrics:
         * 10,
         "credit_turnover": total_use_credit / max(1.0, total_gain_credit),
         "credit_spend_per_min": total_use_credit / safe_minutes,
-        "high_grade_crafts_per_game": _sum(matches, "craftLegend", "craftMythic")
-        / safe_games,
+        "high_grade_crafts_per_game": _sum(matches, "craftLegend", "craftMythic") / safe_games,
         "deaths_per_10_min": sum(deaths) / safe_minutes * 10,
         "deathless_rate": sum(death == 0 for death in deaths) / safe_games,
         "multi_death_rate": sum(death >= 2 for death in deaths) / safe_games,
     }
     coverage = {
-        dimension: _coverage(matches, fields)
-        for dimension, fields in _DIMENSION_FIELDS.items()
+        dimension: _coverage(matches, fields) for dimension, fields in _DIMENSION_FIELDS.items()
     }
     return RadarMetrics(
         sample_size=sample_size,

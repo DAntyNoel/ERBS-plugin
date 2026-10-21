@@ -10,8 +10,8 @@ CLI or Python caller
   -> private SQLite query cache with per-operation TTLs
   -> ERBSService and ERBSAnalysisService
   -> AsyncERBSClient and in-process caches
-  -> TextRenderer or HtmlCardRenderer
-  -> local asset manifest for PNG rendering
+  -> TextRenderer or SkiaCardRenderer
+  -> on-demand DAK.GG CDN assets and local manifest for PNG rendering
 ```
 
 The package boundary ends after returning JSON text, PNG bytes, or a saved `Path`.
@@ -39,25 +39,24 @@ uv run erbs overview eternalreturn
 ## Card preview scaffold
 
 The repository has a live debug command for reviewing every command image against the shared card
-template. It executes the same service methods as normal commands and renders with downloaded local
-image assets:
+renderer. It executes the same service methods as normal commands and prepares referenced CDN
+image assets on demand:
 
 ```bash
 uv run erbs debug
 ```
 
-Prepare assets first with `uv run erbs assets download --directory ./assets`. Required debug image
-assets are strict: a missing file raises `AssetMissing` instead of silently rendering a placeholder.
+Pre-downloading assets is optional. Failed downloads use placeholders; JSON output never prepares images.
 
-The command renders all 17 supported default query cards, then writes their PNG results,
+The command renders all 24 supported default command cards, then writes their PNG results,
 `manifest.json`, and a browser-friendly contact sheet to `.debug/cards/`.
 Open `.debug/cards/index.html`, adjust
-`src/erbs_plugin/rendering/templates/card.html` or `card.css`, and rerun the command to refresh the
+`src/erbs_plugin/rendering/skia.py`, and rerun the command to refresh the
 whole set.
 
 Every bare `erbs debug` run rerenders all supported default command cards. Debug and normal queries
 share the private SQLite query database when the operation, arguments, language, and API endpoint
-match, so template iterations do not repeatedly call DAK.GG. Pass `--refresh-data` to replace
+match, so rendering iterations do not repeatedly call DAK.GG. Pass `--refresh-data` to replace
 matching cached payloads with fresh network results. The former `--only` interface has been removed
 so visual reviews cannot accidentally omit layouts. `erbs debug cards` remains as a compatibility
 alias for the same full rerender.
@@ -114,10 +113,10 @@ Use `--api-base-url` and `--language` for CLI configuration, or pass `ERBSConfig
 PNG rendering requires:
 
 - installation with the `render` extra;
-- Chrome, Edge, or Chromium;
-- a downloaded local asset manifest when real character and item images are desired.
+- fonts covering the requested language (Noto Sans CJK on Linux, or `render_font_path`);
+- CDN access or a downloaded asset manifest for real character and item images.
 
-Check browser discovery and assets with:
+Check asset consistency and rendering with:
 
 ```bash
 uv run erbs assets check --directory ./data/erbs-assets
@@ -128,8 +127,9 @@ uv run erbs overview eternalreturn \
 
 The renderer automatically searches the current directory and its parents for `assets/`,
 `data/erbs-assets/`, or `erbs-assets/`, then checks the platform user-data directory. It maps
-remote image references to matching local files and embeds them as data URIs. Missing files use the
-bundled placeholder, and runtime queries do not download them.
+remote image references to matching local files, downloads missing referenced `cdn.dak.gg` images,
+and draws them natively. Set `download_render_assets=False` for local-only rendering. Failed
+downloads use the bundled placeholder; successful files are kept even when another download fails.
 
 ## Asset maintenance
 
@@ -154,3 +154,13 @@ capture a new fixture deliberately and update assertions only after confirming t
 Package source must remain independent from any consuming application's framework, event types,
 identity storage, cooldown rules, and transport implementation. Add integration behavior to the
 consumer and expose only reusable data/query/rendering behavior here.
+
+## DAK.GG and graphics migration
+
+Character details are read from the public character page's `__NEXT_DATA__` snapshot; player,
+character-table and tier statistics use public GET endpoints. No page JavaScript is executed.
+See [the query guide](DAK_QUERIES.zh-CN.md) for endpoint and aggregation contracts.
+
+The archived HTML/CSS renderer, bundled theme and SVG geometry are under
+[`src/erbs_plugin/legacy/`](../src/erbs_plugin/legacy/README.md). Active radar payloads contain
+semantic scores; the legacy renderer adds its own coordinates without mutating the payload.

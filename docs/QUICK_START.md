@@ -8,7 +8,7 @@ ERBS-plugin 是一个独立、框架无关的《永恒轮回》数据查询与�
 ## 1. 环境要求
 
 - Python 3.12
-- 生成 PNG 时需要本机已安装 Chrome、Edge 或 Chromium
+- 生成 PNG 时需要 `render` 扩展；Linux 建议安装 Noto Sans CJK 字体
 - 下载数据和图片资源时需要能够访问 DAK.GG
 
 只使用 JSON 查询：
@@ -31,7 +31,8 @@ uv sync --all-extras --dev
 
 ## 2. 准备本地图片资源
 
-运行时不会自动下载缺失图片。首次使用 PNG 或 debug 渲染前，建议在项目目录执行：
+PNG 与 debug 按需下载当前结果引用的 DAK.GG CDN 图片，并复用本地清单。JSON 不下载图片。
+也可以提前批量准备资源：
 
 ```bash
 erbs assets download --directory ./assets
@@ -52,8 +53,8 @@ uv run erbs assets check --directory ./assets
 3. `erbs-assets/`
 4. 平台用户数据目录中的 `erbs-plugin/assets/`
 
-普通查询遇到未下载的远程图片时会使用内置占位图。默认 debug 样例使用严格的真实资源
-引用，缺少必需图片时会抛出 `AssetMissing`，不会静默生成带占位图的预览。
+图片下载失败时使用内置占位图。通过 `ERBSConfig(download_render_assets=False)`
+可禁用自动下载；通过 `asset_directory` 可指定缓存位置。
 
 资源维护命令：
 
@@ -113,17 +114,18 @@ erbs overview "B站丨咕咕禽OC" --format bytes > player.png
 
 在可能改变二进制重定向内容的终端环境中，应优先使用 `--format path`。
 
-找不到浏览器时，可以显式指定可执行文件：
+Linux 缺少中文字体时，可安装 Noto Sans CJK，或传入字体路径：
 
 ```bash
-erbs overview PLAYER --format path --output ./player.png --browser-path "C:\Program Files\Google\Chrome\Application\chrome.exe"
+erbs character 席琳 --format path --output ./celine.png --font-path /path/to/NotoSansCJK-Regular.ttc
 ```
 
-也可以设置环境变量 `ERBS_RENDER_BROWSER`。
+完整 LoMu 风格命令、筛选参数与 Python 示例见 [DAK.GG 查询说明](DAK_QUERIES.zh-CN.md)。
+旧绘图的显式调用方式见 [legacy](../src/erbs_plugin/legacy/README.md)。
 
 ## 4. Debug 图片预览
 
-裸 `debug` 命令会重新渲染全部 18 个接口的默认图片，并生成浏览器可查看的总览：
+裸 `debug` 命令会重新渲染全部 24 个命令的默认图片，并生成浏览器可查看的总览：
 
 ```bash
 erbs debug
@@ -131,14 +133,14 @@ erbs debug
 
 输出目录默认为 `.debug/cards/`，其中包含：
 
-- 18 张默认接口 PNG
+- 24 张默认命令 PNG
 - `manifest.json`
 - 图片总览 `index.html`
 
 `erbs debug cards` 是相同功能的兼容别名。默认样例玩家为 `B站丨咕咕禽OC`、`Preme`
 和 `페이블`。
 
-Debug 与普通查询共用当前用户私有目录中的 SQLite 查询数据库，因此修改模板后反复渲染不会
+Debug 与普通查询共用当前用户私有目录中的 SQLite 查询数据库，因此修改绘图逻辑后反复渲染不会
 重复请求网络。需要获取最新数据时显式刷新缓存：
 
 ```bash
@@ -181,6 +183,9 @@ erbs debug matches "B站丨咕咕禽OC" --count 10
 | `hero-pool` | 900 秒 | `equipment` | 900 秒 |
 | `skins` | 1800 秒 | `character` | 1800 秒 |
 | `item` | 86400 秒 |  |  |
+| `search` | 300 秒 | `character-stats` | 1800 秒 |
+| `character-equipment` | 1800 秒 | `tier-stats` | 300 秒 |
+| `tier-cutoffs` | 60 秒 | `help` | 不缓存 |
 
 可通过 `ERBSConfig(query_cache_seconds={...})` 为每一种查询覆盖 TTL，通过
 `private_database_path` 修改数据库位置。所有查询结果都会包含 `footer.updatedAt` 信息更新
@@ -190,7 +195,7 @@ erbs debug matches "B站丨咕咕禽OC" --count 10
 
 图片页脚会将 `footer.updatedAt` 转换为固定时区后显示。默认配置为
 `ERBSConfig(render_timezone_name="CST", render_timezone_offset_hours=8)`，显示格式为
-`7月25日 23:16:03`；时区文字不会出现在图片中。该转换只影响图片，不改变 JSON 中的
+`2026-10-21 15:16 CST`。该转换只影响图片，不改变 JSON 中的
 ISO 8601 时间。
 
 ## 5. Python 高层 API
@@ -236,12 +241,14 @@ result = await query("matches", "B站丨咕咕禽OC", count=10, format="json")
 - `characters`、`teammates`
 - `best_match`、`hero_pool`、`equipment`
 - `leaderboard`、`character`、`item`、`routes`
+- `search`、`character_equipment`、`character_stats`、`tier_stats`、`tier_cutoffs`
+- `execute_command`：解析并执行中文斜杠命令
 
 ### 输出格式
 
 | `format` | 返回类型 | 说明 |
 | --- | --- | --- |
-| `"json"` | `str` | 默认值，不启动浏览器 |
+| `"json"` | `str` | 默认值，不初始化图形引擎 |
 | `"bytes"` | `bytes` | 返回完整 PNG 字节 |
 | `"path"` | `Path` | 必须同时提供 `output`，通过临时文件原子替换 |
 
@@ -249,17 +256,17 @@ result = await query("matches", "B站丨咕咕禽OC", count=10, format="json")
 
 ## 6. 复用客户端与渲染器
 
-频繁查询时，应复用客户端和浏览器渲染器，减少连接和浏览器启动开销：
+频繁查询时，应复用客户端与 Skia 渲染器，减少连接和字体、图片解析开销：
 
 ```python
 import asyncio
 
-from erbs_plugin import AsyncERBSClient, HtmlCardRenderer, player_overview
+from erbs_plugin import AsyncERBSClient, SkiaCardRenderer, player_overview
 
 
 async def main() -> None:
     async with AsyncERBSClient() as client:
-        async with HtmlCardRenderer(client.config) as renderer:
+        async with SkiaCardRenderer(client.config) as renderer:
             first = await player_overview(
                 "B站丨咕咕禽OC",
                 format="bytes",
@@ -314,10 +321,10 @@ except RenderFailed as exc:
 
 ## 8. 常见问题
 
-### PNG 渲染提示未找到浏览器
+### PNG 渲染依赖或中文字体缺失
 
-确认 Chrome、Edge 或 Chromium 已安装；随后使用 `--browser-path` 或
-`ERBS_RENDER_BROWSER` 指定可执行文件。
+安装 `erbs-plugin[render]`。Linux 可安装 Noto Sans CJK，或通过 `--font-path` /
+`ERBSConfig(render_font_path=...)` 指定支持所需文字的字体。
 
 ### 图片显示为占位图
 
@@ -330,9 +337,9 @@ erbs assets check --directory ./assets
 
 同时确认命令运行目录位于 `assets/` 的同级目录或其子目录中。
 
-### Debug 报 `AssetMissing`
+### Debug 图片缺失
 
-默认 debug 预览不允许占位图。重新下载或更新 `./assets` 后再次运行 `erbs debug`。
+确认能够访问 `cdn.dak.gg`，并检查资源清单；下载失败的图片使用占位图，其余部分继续渲染。
 
 ### 请求失败或返回限流
 

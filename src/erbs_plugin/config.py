@@ -27,12 +27,18 @@ def _default_query_cache_seconds() -> dict[str, int]:
         "character": 1800,
         "item": 86400,
         "routes": 600,
+        "search": 300,
+        "character-stats": 1800,
+        "character-equipment": 1800,
+        "tier-stats": 300,
+        "tier-cutoffs": 60,
     }
 
 
 @dataclass(slots=True)
 class ERBSConfig:
     api_base_url: str = "https://er.dakgg.io"
+    web_base_url: str = "https://dak.gg/er"
     language: str = "zh-CN"
     timeout_seconds: float = 8.0
     retry_count: int = 2
@@ -44,11 +50,16 @@ class ERBSConfig:
     metadata_cache_seconds: int = 1800
     negative_cache_seconds: int = 600
     stale_cache_seconds: int = 900
+    ercraft_api_fallback: bool = False
+    ercraft_api_base_url: str = "https://api.ercraft.net"
     query_cache_enabled: bool = True
     query_cache_seconds: Mapping[str, int] = field(default_factory=_default_query_cache_seconds)
     query_cache_max_entries: int = 512
     private_database_path: Path | None = None
     asset_directory: Path | None = None
+    render_font_path: Path | None = None
+    download_render_assets: bool = True
+    # Explicit legacy HTML renderer settings; unused by the default Skia renderer.
     browser_path: Path | None = None
     render_timeout_seconds: float = 30.0
     render_restart_after: int = 100
@@ -58,6 +69,8 @@ class ERBSConfig:
 
     def __post_init__(self) -> None:
         self.api_base_url = self.api_base_url.rstrip("/")
+        self.web_base_url = self.web_base_url.rstrip("/")
+        self.ercraft_api_base_url = self.ercraft_api_base_url.rstrip("/")
         self.query_cache_seconds = {
             key.strip().casefold().replace("_", "-"): max(0, int(value))
             for key, value in self.query_cache_seconds.items()
@@ -73,6 +86,8 @@ class ERBSConfig:
             self.asset_directory = Path(self.asset_directory)
         if self.browser_path is not None:
             self.browser_path = Path(self.browser_path)
+        if self.render_font_path is not None:
+            self.render_font_path = Path(self.render_font_path).expanduser()
         self.request_concurrency = max(1, self.request_concurrency)
         self.retry_count = max(0, self.retry_count)
         self.retry_backoff_seconds = max(0.0, self.retry_backoff_seconds)
