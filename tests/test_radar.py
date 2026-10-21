@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from pathlib import Path
 
 import pytest
 
-from erbs_plugin import InvalidQuery
+from erbs_plugin import AXES_VERSION, InvalidQuery
 from erbs_plugin.radar import (
     RadarDataSource,
     RadarSample,
@@ -121,72 +123,74 @@ async def test_radar_data_source_rejects_invalid_count_before_fetch() -> None:
     assert client.requested_pages == []
 
 
-def test_radar_scorer_returns_eight_bounded_scores_and_confidence() -> None:
-    sample = RadarSample("Kanami", tuple(match(index) for index in range(20)))
+def test_radar_uses_upstream_six_axes_without_sample_shrinkage() -> None:
+    reference = json.loads(
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+    )
+    raw = reference["matches"][0]["raw"]
+    small = RadarScorer().score(RadarSample("Kanami", (raw,)))
+    full = RadarScorer().score(RadarSample("Kanami", tuple(raw for _ in range(20))))
+    assert small.confidence == "insufficient"
+    assert full.confidence == "medium"
+    assert full.calibration_version == AXES_VERSION
+    assert len(full.dimensions) == 6
+    assert [d.score for d in full.dimensions[:5]] == [d.score for d in small.dimensions[:5]]
+    assert small.dimensions[5].score is None
+    assert full.dimensions[5].score == 100
+    assert small.overall_score == reference["matches"][0]["onlineScore"]
 
+
+def test_result_axis_uses_every_scored_match_as_upstream_does() -> None:
+    reference = json.loads(
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+    )
+    sample = RadarSample("sample", tuple(c["raw"] for c in reference["matches"][:210]))
     profile = RadarScorer().score(sample)
+    assert profile.scored_matches == 210
+    assert profile.complete_matches == 202
+    from erbs_plugin.scoring.core import js_round
 
-    assert profile.confidence == "high"
-    assert profile.calibration_version == "style-v1"
-    assert len(profile.dimensions) == 8
-    assert [item.key for item in profile.dimensions] == [
-        "aggression",
-        "pressure",
-        "teamwork",
-        "support",
-        "development",
-        "vision",
-        "investment",
-        "stability",
-    ]
-    assert all(0 <= item.score <= 100 for item in profile.dimensions)
-    assert all(len(item.components) >= 2 for item in profile.dimensions)
+    expected = js_round(sum(c["onlineScore"] for c in reference["matches"][:210]) / 210, 2)
+    assert profile.overall_score == expected
+    assert profile.analysis_axes["aggregationPolicy"] == "production-overall-direct-match-mean"
 
 
-def test_small_sample_scores_are_shrunk_toward_neutral() -> None:
-    scorer = RadarScorer()
-    small = scorer.score(RadarSample("Kanami", (match(1),)))
-    full = scorer.score(RadarSample("Kanami", tuple(match(index) for index in range(20))))
-
-    for small_dimension, full_dimension in zip(
-        small.dimensions, full.dimensions, strict=True
-    ):
-        assert abs(small_dimension.score - 50) <= abs(full_dimension.score - 50)
-
-
-def test_stability_rewards_lower_death_frequency() -> None:
-    scorer = RadarScorer()
-    stable = scorer.score(RadarSample("stable", tuple(match(index) for index in range(20))))
-    risky = scorer.score(
-        RadarSample("risky", tuple(match(index, deaths=3) for index in range(20)))
-    )
-
-    stable_score = next(item.score for item in stable.dimensions if item.key == "stability")
-    risky_score = next(item.score for item in risky.dimensions if item.key == "stability")
-    assert stable_score > risky_score
-
-
-def test_radar_presentation_builds_eight_axis_svg_geometry() -> None:
-    profile = RadarScorer().score(
-        RadarSample("Kanami", tuple(match(index) for index in range(20)))
-    )
-
+def test_radar_does_not_turn_missing_data_into_neutral_or_zero_scores() -> None:
+    profile = RadarScorer().score(RadarSample("missing", ({},)))
+    assert profile.overall_score is None
+    assert profile.scored_matches == 0
+    assert all(item.score is None for item in profile.dimensions)
     section = build_radar_section(profile)
+    assert all(axis["score"] is None for axis in section["axes"])
+    assert section["topStyles"] == []
+    assert section["matchScores"][0]["missingReason"] == "unsupported-or-missing-mode"
 
-    assert section["type"] == "radar"
-    assert len(section["axes"]) == 8
-    assert len(section["rings"]) == 4
-    assert len(str(section["scorePoints"]).split()) == 8
-    assert len(section["topStyles"]) == 3
-    assert section["axes"][2]["compactAnchor"] == "end"
-    assert section["axes"][6]["compactAnchor"] == "start"
+
+def test_radar_presentation_keeps_semantic_scores_without_svg_geometry() -> None:
+    reference = json.loads(
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+    )
+    profile = RadarScorer().score(
+        RadarSample("sample", tuple(c["raw"] for c in reference["matches"][:2]))
+    )
+    section = build_radar_section(profile)
+    assert len(section["axes"]) == 6
+    assert "rings" not in section
+    assert "scorePoints" not in section
+    assert all("outerX" not in axis for axis in section["axes"])
     assert [axis["label"] for axis in section["axes"]] == [
-        "进攻",
-        "承伤",
-        "团队",
-        "支援",
+        "生存",
+        "交战",
         "运营",
-        "控图",
-        "资源",
-        "稳健",
+        "支援",
+        "结果",
+        "稳定性",
     ]
+    from erbs_plugin.legacy.radar import with_radar_geometry
+
+    legacy = with_radar_geometry(section)
+    assert len(legacy["rings"]) == 4
+    assert all(len(ring["points"].split()) == 6 for ring in legacy["rings"])
+    assert len(legacy["scorePoints"].split()) == 6
+    assert legacy["axes"][1]["outerX"] == pytest.approx(340.4, abs=0.1)
+    assert "outerX" not in section["axes"][1]

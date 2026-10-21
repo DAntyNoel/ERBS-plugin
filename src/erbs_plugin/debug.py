@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .cache import QueryCacheDatabase, annotate_query_payload, query_cache_spec
+from .commands import COMMAND_HELP
 from .config import ERBSConfig
 from .models import CardPayload
 from .radar import RadarDimensionScore, RadarProfile, build_radar_section
-from .rendering import HtmlCardRenderer
+from .rendering import CardRenderer, SkiaCardRenderer
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +31,9 @@ class DebugQuery:
     page: int = 1
     season: str | None = None
     weapon: str | None = None
+    mode: str = "RANK"
+    tier: str = "diamond_plus"
+    server: str = "seoul"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +98,14 @@ DEFAULT_DEBUG_QUERIES = (
     DebugQuery("character", ("艾玛",), weapon="Arcana"),
     DebugQuery("item", ("烈阳",)),
     DebugQuery("routes", ("艾玛",), weapon="Arcana"),
+    DebugQuery("search", (_PRIMARY_PLAYER,), count=20),
+    DebugQuery("character-equipment", ("席琳",)),
+    DebugQuery("character-stats"),
+    DebugQuery("tier-stats"),
+    DebugQuery("tier-cutoffs"),
+    DebugQuery("help"),
 )
+
 
 def _card(
     operation: str,
@@ -141,14 +152,12 @@ def _mmr_preview_section() -> dict[str, object]:
 
 def _radar_preview_section(*, compact: bool = False) -> dict[str, object]:
     values = (
-        ("aggression", "进攻性", 78),
-        ("pressure", "承压性", 56),
-        ("teamwork", "团队参与", 84),
-        ("support", "控制支援", 63),
-        ("development", "发育运营", 71),
-        ("vision", "视野控图", 88),
-        ("investment", "资源投入", 67),
-        ("stability", "稳健性", 59),
+        ("survival", "生存", 78),
+        ("combat", "交战", 84),
+        ("macro", "运营", 63),
+        ("support", "支援", 88),
+        ("finish", "结果", 71),
+        ("consistency", "稳定性", 79),
     )
     profile = RadarProfile(
         nickname=_PRIMARY_PLAYER,
@@ -156,23 +165,28 @@ def _radar_preview_section(*, compact: bool = False) -> dict[str, object]:
         total_minutes=408.0,
         confidence="high",
         cached=False,
-        calibration_version="style-v1",
+        calibration_version="production-analysis-axes.v1.1",
+        overall_score=71,
+        scored_matches=20,
+        complete_matches=20,
         dimensions=tuple(
             RadarDimensionScore(
                 key=key,
                 label=label,
-                description=f"{label}风格倾向",
+                description=f"{label}表现评分",
                 score=score,
                 raw_score=float(score),
                 coverage=1.0,
                 components=(),
+                sample_count=20,
+                status="ready",
             )
             for key, label, score in values
         ),
     )
     section = dict(build_radar_section(profile))
     if compact:
-        section.update({"title": "实战风格", "layout": "half", "compact": True})
+        section.update({"title": "实战评分", "layout": "half", "compact": True})
     return section
 
 
@@ -368,7 +382,7 @@ CARD_PREVIEWS = (
     ),
     _card(
         "radar",
-        "排位风格",
+        "排位评分",
         (_radar_preview_section(),),
         kind="radar",
     ),
@@ -633,6 +647,103 @@ CARD_PREVIEWS = (
 )
 
 
+_EXISTING_PREVIEWS = {preview.operation: preview for preview in CARD_PREVIEWS}
+CARD_PREVIEWS += (
+    _card("search", "玩家资料与战绩", _EXISTING_PREVIEWS["overview"].payload.sections),
+    _card(
+        "character-equipment",
+        "角色出装",
+        (
+            {
+                "title": "热门出装",
+                "type": "builds",
+                "items": [
+                    {
+                        "name": "推荐出装 1",
+                        "games": 120,
+                        "winRate": 20.0,
+                        "equipmentItems": [{"name": "烈阳", "imageUrl": _SUN_ITEM_IMAGE}],
+                        "order": [{"name": "烈阳"}, {"name": "精灵之衣"}],
+                    }
+                ],
+            },
+        ),
+        kind="character",
+        title="席琳",
+    ),
+    _card(
+        "character-stats",
+        "角色数据",
+        (
+            {
+                "title": "全部角色 / 武器",
+                "type": "character-stats",
+                "items": [
+                    {
+                        "name": "艾玛",
+                        "imageUrl": _EMMA_CHARACTER_IMAGE,
+                        "weapon": "阿尔卡纳",
+                        "games": 12000,
+                        "winRate": 15.2,
+                        "avgDamage": 18688.0,
+                        "tier": "S",
+                    }
+                ],
+            },
+        ),
+        kind="global",
+        title="角色数据",
+    ),
+    _card(
+        "tier-stats",
+        "段位分布与分数线",
+        (
+            {
+                "title": "当前分数线",
+                "type": "stats",
+                "items": [{"label": "永恒", "value": 9000}, {"label": "半神", "value": 8000}],
+            },
+            {
+                "title": "段位分布（全服统计）",
+                "type": "items",
+                "items": [{"name": "灭钻", "count": 10000, "rate": 15.0}],
+            },
+        ),
+        kind="global",
+        title="段位统计",
+    ),
+    _card(
+        "tier-cutoffs",
+        "分数线",
+        (
+            {
+                "title": "当前分数线",
+                "type": "stats",
+                "items": [{"label": "永恒", "value": 9000}, {"label": "半神", "value": 8000}],
+            },
+        ),
+        kind="global",
+        title="永恒 / 半神分数线",
+    ),
+    _card(
+        "help",
+        "查询帮助",
+        (
+            {
+                "title": "帮助",
+                "type": "items",
+                "items": [
+                    {"name": command, "description": description}
+                    for command, description in COMMAND_HELP
+                ],
+            },
+        ),
+        kind="help",
+        title="永恒轮回查询命令",
+    ),
+)
+
+
 def preview_operations() -> tuple[str, ...]:
     return tuple(query.operation for query in DEFAULT_DEBUG_QUERIES)
 
@@ -655,7 +766,7 @@ def _quoted(value: str) -> str:
 
 def _debug_query_command(query: DebugQuery) -> str:
     parts = ["erbs", query.operation, *query.arguments]
-    if query.operation in {"matches", "radar"}:
+    if query.operation in {"matches", "radar", "search"}:
         parts.extend(("--count", str(query.count)))
     if query.operation == "leaderboard":
         parts.extend(("--page", str(query.page)))
@@ -663,6 +774,12 @@ def _debug_query_command(query: DebugQuery) -> str:
         parts.extend(("--season", query.season))
     if query.weapon is not None:
         parts.extend(("--weapon", query.weapon))
+    if query.mode != "RANK":
+        parts.extend(("--mode", query.mode))
+    if query.tier != "diamond_plus":
+        parts.extend(("--tier", query.tier))
+    if query.server != "seoul":
+        parts.extend(("--server", query.server))
     return " ".join(_quoted(part) for part in parts)
 
 
@@ -679,6 +796,9 @@ def _live_record(query: DebugQuery, payload: CardPayload) -> dict[str, Any]:
             "page": query.page,
             "season": query.season,
             "weapon": query.weapon,
+            "mode": query.mode,
+            "tier": query.tier,
+            "server": query.server,
         },
         "payload": asdict(payload),
     }
@@ -729,12 +849,12 @@ def _gallery_html(records: list[dict[str, Any]]) -> str:
     cards = "\n".join(
         f"""<article>
   <header>
-    <code>{escape(str(record['operation']))}</code>
-    <span>{escape(str(record['description']))}</span>
-    <b>{escape(str(record.get('source', 'live')).upper())}</b>
+    <code>{escape(str(record["operation"]))}</code>
+    <span>{escape(str(record["description"]))}</span>
+    <b>{escape(str(record.get("source", "live")).upper())}</b>
   </header>
-  <a href="{escape(str(record['image']))}">
-    <img src="{escape(str(record['image']))}" alt="{escape(str(record['operation']))} preview">
+  <a href="{escape(str(record["image"]))}">
+    <img src="{escape(str(record["image"]))}" alt="{escape(str(record["operation"]))} preview">
   </a>
 </article>"""
         for record in records
@@ -805,7 +925,7 @@ async def render_card_previews(
     missing_only: bool = False,
     refresh_data: bool = False,
     config: ERBSConfig | None = None,
-    renderer: HtmlCardRenderer | None = None,
+    renderer: CardRenderer | None = None,
     payload_provider: Callable[[DebugQuery], Awaitable[CardPayload]] | None = None,
 ) -> PreviewBuild:
     from .api import _payload_for
@@ -830,13 +950,14 @@ async def render_card_previews(
 
     active_config = config or ERBSConfig()
     owned_renderer = renderer is None
-    active_renderer = renderer or HtmlCardRenderer(active_config)
+    active_renderer = renderer or SkiaCardRenderer(active_config)
     query_database = QueryCacheDatabase(
         active_config.private_database_path,
         max_entries=active_config.query_cache_max_entries,
     )
     client: AsyncERBSClient | None = None
     if payload_provider is None:
+
         async def load_payload(query: DebugQuery) -> CardPayload:
             nonlocal client
             if client is None:
@@ -849,6 +970,9 @@ async def render_card_previews(
                 page=query.page,
                 season=query.season,
                 weapon=query.weapon,
+                mode=query.mode,
+                tier=query.tier,
+                server=query.server,
             )
 
         active_payload_provider = load_payload
@@ -868,6 +992,12 @@ async def render_card_previews(
                 page=query.page,
                 season=query.season,
                 weapon=query.weapon,
+                mode=query.mode,
+                tier=query.tier,
+                server=query.server,
+                web_base_url=active_config.web_base_url,
+                ercraft_api_fallback=active_config.ercraft_api_fallback,
+                ercraft_api_base_url=active_config.ercraft_api_base_url,
             )
             cache_ttl = active_config.query_cache_ttl(query.operation)
             payload = None
@@ -904,13 +1034,14 @@ async def render_card_previews(
         gallery_count=gallery_count,
     )
 
+
 async def render_query_preview(
     operation: str,
     *arguments: str,
     output_directory: str | Path,
     refresh_data: bool = False,
     config: ERBSConfig | None = None,
-    renderer: HtmlCardRenderer | None = None,
+    renderer: CardRenderer | None = None,
     gallery_payload_provider: Callable[[DebugQuery], Awaitable[CardPayload]] | None = None,
     format: Literal["json", "bytes", "path"] = "json",
     output: str | Path | None = None,
@@ -918,6 +1049,9 @@ async def render_query_preview(
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
+    mode: str = "RANK",
+    tier: str = "diamond_plus",
+    server: str = "seoul",
 ) -> PreviewBuild:
     from .api import _payload_for, _render_output
     from .client import AsyncERBSClient
@@ -935,6 +1069,12 @@ async def render_query_preview(
         page=page,
         season=season,
         weapon=weapon,
+        mode=mode,
+        tier=tier,
+        server=server,
+        web_base_url=active_config.web_base_url,
+        ercraft_api_fallback=active_config.ercraft_api_fallback,
+        ercraft_api_base_url=active_config.ercraft_api_base_url,
     )
     digest = hashlib.sha256(
         json.dumps(spec, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -942,7 +1082,7 @@ async def render_query_preview(
     image_path = destination / f"custom-{operation}-{digest}.png"
 
     owned_renderer = renderer is None
-    active_renderer = renderer or HtmlCardRenderer(active_config)
+    active_renderer = renderer or SkiaCardRenderer(active_config)
     query_database = QueryCacheDatabase(
         active_config.private_database_path,
         max_entries=active_config.query_cache_max_entries,
@@ -963,6 +1103,9 @@ async def render_query_preview(
                 page=page,
                 season=season,
                 weapon=weapon,
+                mode=mode,
+                tier=tier,
+                server=server,
             )
             payload = annotate_query_payload(payload)
             await query_database.set(spec, payload, ttl=cache_ttl)
@@ -1002,9 +1145,15 @@ async def render_query_preview(
         option_parts.extend(("--season", season))
     if weapon is not None:
         option_parts.extend(("--weapon", weapon))
+    for key, value, default in (
+        ("mode", mode, "RANK"),
+        ("tier", tier, "diamond_plus"),
+        ("server", server, "seoul"),
+    ):
+        if value != default:
+            option_parts.extend((f"--{key}", value))
     command = " ".join(
-        _quoted(part)
-        for part in ("erbs", "debug", operation, *arguments, *option_parts)
+        _quoted(part) for part in ("erbs", "debug", operation, *arguments, *option_parts)
     )
     custom_record = {
         "id": f"query:{digest}",
@@ -1018,6 +1167,9 @@ async def render_query_preview(
             "page": page,
             "season": season,
             "weapon": weapon,
+            "mode": mode,
+            "tier": tier,
+            "server": server,
             "language": active_config.language,
         },
         "payload": asdict(payload),

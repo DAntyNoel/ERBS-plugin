@@ -30,6 +30,14 @@ from erbs_plugin import PlayerNotFound, RenderFailed, UpstreamUnavailable
         ["item", "Mithril", "Armor"],
         ["routes", "Black", "Mamba", "--weapon", "Pistol"],
         ["assets", "check", "--directory", "assets"],
+        ["search", "player", "--mode", "普通", "--count", "20"],
+        ["character-equipment", "席琳", "--tier", "星陨"],
+        ["character-stats", "--tier", "无瑕"],
+        ["tier-stats", "--server", "国服"],
+        ["tier-cutoffs", "--server", "frankfurt"],
+        ["command", "/查询角色 席琳 排位 灭钻"],
+        ["help"],
+        ["debug", "character-equipment", "席琳", "--mode", "钴协议"],
     ],
 )
 def test_parser_accepts_every_command(arguments: list[str]) -> None:
@@ -54,9 +62,7 @@ def test_retired_commands_are_not_exposed(arguments: list[str]) -> None:
 
 def test_render_commands_do_not_expose_asset_directory_option() -> None:
     with pytest.raises(SystemExit):
-        cli_module.parser().parse_args(
-            ["overview", "player", "--asset-directory", "assets"]
-        )
+        cli_module.parser().parse_args(["overview", "player", "--asset-directory", "assets"])
 
 
 def test_cli_json_output(monkeypatch, capsys) -> None:
@@ -109,9 +115,7 @@ def test_cli_path_output(monkeypatch, tmp_path: Path, capsys) -> None:
 
 
 def test_cli_rejects_invalid_output_combination(capsys) -> None:
-    args = cli_module.parser().parse_args(
-        ["overview", "player", "--format", "path"]
-    )
+    args = cli_module.parser().parse_args(["overview", "player", "--format", "path"])
 
     assert asyncio.run(cli_module.run(args)) == cli_module.EXIT_USAGE
     assert "--output is required" in capsys.readouterr().err
@@ -144,9 +148,7 @@ def test_cli_assets_reuses_asset_runner(monkeypatch, tmp_path: Path) -> None:
         return 9
 
     monkeypatch.setattr(cli_module.assets_cli, "run", fake_run)
-    args = cli_module.parser().parse_args(
-        ["assets", "check", "--directory", str(tmp_path)]
-    )
+    args = cli_module.parser().parse_args(["assets", "check", "--directory", str(tmp_path)])
 
     assert asyncio.run(cli_module.run(args)) == 9
     assert seen[0].command == "check"

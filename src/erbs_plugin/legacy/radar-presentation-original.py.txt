@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping
+
+from .models import RadarProfile
+
+_CENTER_X = 220.0
+_CENTER_Y = 186.0
+_RADIUS = 139.0
+_LABEL_RADIUS = 154.0
+_AXIS_LABELS = {
+    "survival": "生存",
+    "combat": "交战",
+    "macro": "运营",
+    "support": "支援",
+    "finish": "结果",
+    "consistency": "稳定性",
+}
+
+
+def _point(index: int, radius: float, count: int) -> tuple[float, float]:
+    angle = math.radians(-90 + index * 360 / max(1, count))
+    return (
+        _CENTER_X + math.cos(angle) * radius,
+        _CENTER_Y + math.sin(angle) * radius,
+    )
+
+
+def _points(radii: list[float]) -> str:
+    return " ".join(
+        f"{x:.1f},{y:.1f}"
+        for index, radius in enumerate(radii)
+        for x, y in [_point(index, radius, len(radii))]
+    )
+
+
+def build_radar_section(profile: RadarProfile) -> Mapping[str, object]:
+    axes: list[dict[str, object]] = []
+    count = len(profile.dimensions)
+    for index, dimension in enumerate(profile.dimensions):
+        outer_x, outer_y = _point(index, _RADIUS, count)
+        label_x, label_y = _point(index, _LABEL_RADIUS, count)
+        score_x, score_y = _point(index, _RADIUS * (dimension.score or 0) / 100, count)
+        if label_x < _CENTER_X - 18:
+            anchor = "end"
+        elif label_x > _CENTER_X + 18:
+            anchor = "start"
+        else:
+            anchor = "middle"
+        compact_label_x = label_x
+        compact_anchor = anchor
+        if label_x > _CENTER_X + 120:
+            compact_label_x = 390.0
+            compact_anchor = "end"
+        elif label_x < _CENTER_X - 120:
+            compact_label_x = 50.0
+            compact_anchor = "start"
+        axes.append(
+            {
+                "key": dimension.key,
+                "label": _AXIS_LABELS.get(dimension.key, dimension.label),
+                "description": dimension.description,
+                "score": dimension.score,
+                "status": dimension.status,
+                "sampleCount": dimension.sample_count,
+                "grade": dimension.evidence.get("grade"),
+                "percentile": dimension.evidence.get("percentile"),
+                "outerX": round(outer_x, 1),
+                "outerY": round(outer_y, 1),
+                "labelX": round(label_x, 1),
+                "labelY": round(label_y, 1),
+                "scoreX": round(score_x, 1),
+                "scoreY": round(score_y, 1),
+                "anchor": anchor,
+                "compactLabelX": round(compact_label_x, 1),
+                "compactAnchor": compact_anchor,
+            }
+        )
+
+    confidence_labels = {
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "insufficient": "样本不足",
+        "provisional": "暂定",
+        "upstream": "上游结果",
+    }
+    top_styles = sorted(
+        (item for item in profile.dimensions if item.score is not None),
+        key=lambda item: item.score,
+        reverse=True,
+    )[:3]
+    return {
+        "title": "六维实战评分",
+        "type": "radar",
+        "centerX": _CENTER_X,
+        "centerY": _CENTER_Y,
+        "rings": [
+            {"value": value, "points": _points([_RADIUS * value / 100] * count)}
+            for value in (25, 50, 75, 100)
+        ],
+        "axes": axes,
+        "scorePoints": _points(
+            [_RADIUS * (dimension.score or 0) / 100 for dimension in profile.dimensions]
+        )
+        if all(dimension.score is not None for dimension in profile.dimensions)
+        else "",
+        "sampleSize": profile.sample_size,
+        "totalMinutes": round(profile.total_minutes),
+        "confidence": profile.confidence,
+        "confidenceLabel": confidence_labels.get(profile.confidence, profile.confidence),
+        "calibrationVersion": profile.calibration_version,
+        "source": profile.source,
+        "sourceLabel": "本地计算" if profile.source == "local" else "接口备选",
+        "sourceMeta": dict(profile.source_meta),
+        "fallbackReason": profile.fallback_reason,
+        "analysisAxes": dict(profile.analysis_axes),
+        "overallScore": profile.overall_score,
+        "scoredMatches": profile.scored_matches,
+        "completeMatches": profile.complete_matches,
+        "matchScores": list(profile.match_scores),
+        "topStyles": [
+            {"label": dimension.label, "score": dimension.score} for dimension in top_styles
+        ],
+        "items": [
+            {
+                "key": dimension.key,
+                "label": dimension.label,
+                "score": dimension.score,
+                "description": dimension.description,
+                "coverage": round(dimension.coverage * 100),
+                "status": dimension.status,
+                "sampleCount": dimension.sample_count,
+                "evidence": dict(dimension.evidence),
+                "components": [
+                    {
+                        "label": component.label,
+                        "value": round(component.value, 2) if component.value is not None else None,
+                        "score": component.score,
+                    }
+                    for component in dimension.components
+                ],
+            }
+            for dimension in profile.dimensions
+        ],
+    }
+
+
+__all__ = ["build_radar_section"]

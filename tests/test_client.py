@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -77,7 +79,7 @@ async def test_metadata_adds_language_parameter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_character_detail_uses_current_character_stats_endpoint() -> None:
+async def test_character_detail_reads_character_page_snapshot() -> None:
     seen_path = ""
     seen_query = ""
 
@@ -85,7 +87,18 @@ async def test_character_detail_uses_current_character_stats_endpoint() -> None:
         nonlocal seen_path, seen_query
         seen_path = request.url.path
         seen_query = request.url.query.decode()
-        return httpx.Response(200, json={"characterDetailStatSnapshot": {}})
+        payload = {
+            "props": {
+                "pageProps": {
+                    "dehydratedState": {
+                        "queries": [{"state": {"data": {"characterDetailStatSnapshot": {}}}}]
+                    }
+                }
+            }
+        }
+        return httpx.Response(
+            200, text='<script id="__NEXT_DATA__">' + json.dumps(payload) + "</script>"
+        )
 
     client = AsyncERBSClient(ERBSConfig(language="zh-CN"), transport=httpx.MockTransport(handler))
     try:
@@ -93,11 +106,12 @@ async def test_character_detail_uses_current_character_stats_endpoint() -> None:
     finally:
         await client.aclose()
 
-    assert seen_path == "/api/v1/character-stats"
-    assert "character=Emma" in seen_query
+    assert seen_path == "/er/characters/Emma"
+    assert "tab=introduction" in seen_query
     assert "matchingMode=RANK" in seen_query
     assert "teamMode=SQUAD" in seen_query
-    assert "weaponType=Arcana" in seen_query
+    assert "tier=diamond_plus" in seen_query
+    assert "weaponType" not in seen_query
 
 
 @pytest.mark.asyncio

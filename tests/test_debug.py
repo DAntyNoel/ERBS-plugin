@@ -39,6 +39,12 @@ EXPECTED_OPERATIONS = (
     "character",
     "item",
     "routes",
+    "search",
+    "character-equipment",
+    "character-stats",
+    "tier-stats",
+    "tier-cutoffs",
+    "help",
 )
 
 
@@ -107,13 +113,13 @@ def test_recent_previews_show_twenty_placements_in_one_chart() -> None:
         assert len(trend["items"]) == 20
 
 
-def test_radar_preview_contains_eight_style_dimensions() -> None:
+def test_radar_preview_contains_six_performance_dimensions() -> None:
     preview = next(preview for preview in CARD_PREVIEWS if preview.operation == "radar")
     section = preview.payload.sections[0]
 
     assert section["type"] == "radar"
-    assert len(section["axes"]) == 8
-    assert len(section["items"]) == 8
+    assert len(section["axes"]) == 6
+    assert len(section["items"]) == 6
     assert section["sampleSize"] == 20
 
 
@@ -152,9 +158,7 @@ def test_recent_and_overview_previews_show_twenty_mmr_points() -> None:
         assert len(trend["items"]) == 20
         assert trend["currentMmr"] == trend["items"][-1]["mmr"]
 
-    assert all(
-        section["type"] != "mmr-chart" for section in previews["matches"].payload.sections
-    )
+    assert all(section["type"] != "mmr-chart" for section in previews["matches"].payload.sections)
 
 
 def test_parser_accepts_card_debug_command() -> None:
@@ -261,7 +265,9 @@ async def test_debug_query_cache_reuses_payloads_across_full_renders(tmp_path) -
     )
 
     assert first_call_count == len(DEFAULT_DEBUG_QUERIES)
-    assert len(calls) == first_call_count
+    # Help is generated locally and deliberately has no persisted query cache.
+    assert len(calls) == first_call_count + 1
+    assert calls[-1].operation == "help"
     assert (tmp_path / "private-query-cache.sqlite3").is_file()
 
 
@@ -424,9 +430,7 @@ async def test_cli_live_debug_bytes_are_not_polluted(monkeypatch, capfdbinary, t
         )
 
     monkeypatch.setattr(cli_module, "render_query_preview", fake_render)
-    args = cli_module.parser().parse_args(
-        ["debug", "overview", "自定义玩家", "--format", "bytes"]
-    )
+    args = cli_module.parser().parse_args(["debug", "overview", "自定义玩家", "--format", "bytes"])
 
     assert await cli_module.run(args) == 0
     captured = capfdbinary.readouterr()

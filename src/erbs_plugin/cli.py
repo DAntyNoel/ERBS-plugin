@@ -5,8 +5,9 @@ import asyncio
 import sys
 from pathlib import Path
 
-from .api import query
+from .api import execute_command, query
 from .assets import cli as assets_cli
+from .commands import normalize_operation
 from .config import ERBSConfig
 from .debug import render_card_previews, render_query_preview
 from .exceptions import (
@@ -30,7 +31,8 @@ def _add_output_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--api-base-url", default="https://er.dakgg.io")
     parser.add_argument("--language", default="zh-CN")
-    parser.add_argument("--browser-path", type=Path)
+    parser.add_argument("--font-path", type=Path)
+    parser.add_argument("--web-base-url", default="https://dak.gg/er")
 
 
 def _add_player_command(
@@ -56,12 +58,38 @@ def _add_assets_commands(
         command.add_argument("--force", action="store_true")
 
 
+def _add_dak_commands(subparsers, output_options) -> None:
+    for name, aliases, description in (
+        ("search", ["查询玩家", "查玩家"], "player profile and recent matches"),
+        ("character-equipment", ["查询角色装备"], "character equipment builds"),
+        ("character-stats", ["角色数据", "角色数据统计"], "all character and weapon statistics"),
+        ("tier-stats", ["段位统计"], "tier population and cutoffs"),
+        ("tier-cutoffs", ["永恒多少分"], "Eternity and Demigod RP cutoffs"),
+        ("help", ["帮助"], "query command help"),
+    ):
+        command = subparsers.add_parser(name, aliases=aliases, help=description)
+        if name == "search":
+            command.add_argument("nickname")
+            command.add_argument("--count", type=int, default=20)
+            command.add_argument("--season")
+        if name == "character-equipment":
+            command.add_argument("query", nargs="+")
+            command.add_argument("--weapon")
+        if name in {"search", "character-equipment", "character-stats"}:
+            command.add_argument("--mode", default="RANK")
+        if name in {"character-equipment", "character-stats"}:
+            command.add_argument("--tier", default="diamond_plus")
+        if name in {"tier-stats", "tier-cutoffs"}:
+            command.add_argument("--server", default="seoul")
+        output_options(command)
+
+
 def _add_debug_commands(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     debug = subparsers.add_parser("debug", help="render real command results for visual review")
     debug.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
-    debug.add_argument("--browser-path", type=Path)
+    debug.add_argument("--font-path", type=Path)
     debug.add_argument("--scale", type=float, default=1.0)
     debug.add_argument("--refresh-data", action="store_true")
     commands = debug.add_subparsers(dest="debug_command")
@@ -69,7 +97,7 @@ def _add_debug_commands(
         "cards", help="run and render all default live commands (compatibility alias)"
     )
     cards.add_argument("--output-directory", type=Path, default=Path(".debug/cards"))
-    cards.add_argument("--browser-path", type=Path)
+    cards.add_argument("--font-path", type=Path)
     cards.add_argument("--scale", type=float, default=1.0)
     cards.add_argument("--refresh-data", action="store_true")
 
@@ -94,7 +122,7 @@ def _add_debug_commands(
     matches = add_player_command("matches", "render live recent matches")
     matches.add_argument("--count", type=int, default=5)
     add_player_command("recent", "render a live recent performance summary")
-    radar = add_player_command("radar", "render a live eight-dimension player style radar")
+    radar = add_player_command("radar", "render a live six-axis player performance radar")
     radar.add_argument("--count", type=int, default=20)
     add_player_command("characters", "render live player character statistics")
     add_player_command("teammates", "render live recent teammates")
@@ -106,12 +134,16 @@ def _add_debug_commands(
     leaderboard.add_argument("--page", type=int, default=1)
     add_query_options(leaderboard)
 
-    character = commands.add_parser("character", help="render live character statistics")
+    character = commands.add_parser(
+        "character", aliases=["查询角色"], help="render character analysis"
+    )
     character.add_argument("query", nargs="+")
     character.add_argument("--weapon")
+    character.add_argument("--mode", default="RANK")
+    character.add_argument("--tier", default="diamond_plus")
     add_query_options(character)
 
-    item = commands.add_parser("item", help="render live item details")
+    item = commands.add_parser("item", aliases=["查询装备"], help="render live item details")
     item.add_argument("query", nargs="+")
     add_query_options(item)
 
@@ -119,6 +151,7 @@ def _add_debug_commands(
     routes.add_argument("query", nargs="+")
     routes.add_argument("--weapon")
     add_query_options(routes)
+    _add_dak_commands(commands, add_query_options)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -136,7 +169,7 @@ def parser() -> argparse.ArgumentParser:
     matches = _add_player_command(subparsers, "matches", "recent matches")
     matches.add_argument("--count", type=int, default=5)
     _add_player_command(subparsers, "recent", "recent performance summary")
-    radar = _add_player_command(subparsers, "radar", "eight-dimension player style radar")
+    radar = _add_player_command(subparsers, "radar", "six-axis player performance radar")
     radar.add_argument("--count", type=int, default=20)
     _add_player_command(subparsers, "characters", "player character statistics")
     _add_player_command(subparsers, "teammates", "recent teammates")
@@ -148,12 +181,14 @@ def parser() -> argparse.ArgumentParser:
     leaderboard.add_argument("--page", type=int, default=1)
     _add_output_options(leaderboard)
 
-    character = subparsers.add_parser("character", help="character statistics")
+    character = subparsers.add_parser("character", aliases=["查询角色"], help="character analysis")
     character.add_argument("query", nargs="+")
     character.add_argument("--weapon")
+    character.add_argument("--mode", default="RANK")
+    character.add_argument("--tier", default="diamond_plus")
     _add_output_options(character)
 
-    item = subparsers.add_parser("item", help="item details")
+    item = subparsers.add_parser("item", aliases=["查询装备"], help="item details")
     item.add_argument("query", nargs="+")
     _add_output_options(item)
 
@@ -161,6 +196,10 @@ def parser() -> argparse.ArgumentParser:
     routes.add_argument("query", nargs="+")
     routes.add_argument("--weapon")
     _add_output_options(routes)
+    _add_dak_commands(subparsers, _add_output_options)
+    command = subparsers.add_parser("command", help="execute a slash command")
+    command.add_argument("text")
+    _add_output_options(command)
 
     _add_assets_commands(subparsers)
     _add_debug_commands(subparsers)
@@ -172,8 +211,9 @@ def _config(args: argparse.Namespace) -> ERBSConfig:
         "api_base_url": args.api_base_url,
         "language": args.language,
     }
-    if args.browser_path is not None:
-        values["browser_path"] = args.browser_path
+    if args.font_path is not None:
+        values["render_font_path"] = args.font_path
+    values["web_base_url"] = args.web_base_url
     if getattr(args, "asset_directory", None) is not None:
         values["asset_directory"] = args.asset_directory
     if hasattr(args, "scale"):
@@ -184,7 +224,7 @@ def _config(args: argparse.Namespace) -> ERBSConfig:
 def _query_arguments(args: argparse.Namespace) -> tuple[str, ...]:
     if hasattr(args, "nickname"):
         return (args.nickname,)
-    if args.operation in {"character", "item", "routes"}:
+    if args.operation in {"character", "character-equipment", "item", "routes"}:
         return (" ".join(args.query),)
     return ()
 
@@ -192,7 +232,7 @@ def _query_arguments(args: argparse.Namespace) -> tuple[str, ...]:
 def _debug_query_arguments(args: argparse.Namespace) -> tuple[str, ...]:
     if hasattr(args, "nickname"):
         return (args.nickname,)
-    if args.debug_command in {"character", "item", "routes"}:
+    if args.debug_command in {"character", "character-equipment", "item", "routes"}:
         return (" ".join(args.query),)
     return ()
 
@@ -217,11 +257,13 @@ async def run(args: argparse.Namespace) -> int:
             return await assets_cli.run(asset_args)
 
         if args.operation == "debug":
+            if args.debug_command:
+                args.debug_command = normalize_operation(args.debug_command)
             if args.debug_command in {None, "cards"}:
                 build = await render_card_previews(
                     args.output_directory,
                     refresh_data=args.refresh_data,
-                    config=ERBSConfig(browser_path=args.browser_path, render_scale=args.scale),
+                    config=ERBSConfig(render_font_path=args.font_path, render_scale=args.scale),
                 )
                 print(
                     f"refreshed {len(build.images)} card previews; "
@@ -246,6 +288,9 @@ async def run(args: argparse.Namespace) -> int:
                 page=getattr(args, "page", 1),
                 season=getattr(args, "season", None),
                 weapon=getattr(args, "weapon", None),
+                mode=getattr(args, "mode", "RANK"),
+                tier=getattr(args, "tier", "diamond_plus"),
+                server=getattr(args, "server", "seoul"),
             )
             if build.result is None:
                 raise RuntimeError("debug query did not return a result")
@@ -264,6 +309,13 @@ async def run(args: argparse.Namespace) -> int:
         if getattr(args, "page", 1) < 1:
             raise InvalidQuery("--page must be greater than zero")
 
+        args.operation = normalize_operation(args.operation)
+        if args.operation == "command":
+            result = await execute_command(
+                args.text, format=args.format, output=args.output, config=_config(args)
+            )
+            _emit_result(result)
+            return 0
         result = await query(
             args.operation,
             *_query_arguments(args),
@@ -274,6 +326,9 @@ async def run(args: argparse.Namespace) -> int:
             page=getattr(args, "page", 1),
             season=getattr(args, "season", None),
             weapon=getattr(args, "weapon", None),
+            mode=getattr(args, "mode", "RANK"),
+            tier=getattr(args, "tier", "diamond_plus"),
+            server=getattr(args, "server", "seoul"),
         )
     except (InvalidQuery, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

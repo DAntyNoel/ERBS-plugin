@@ -14,6 +14,7 @@ from erbs_plugin.config import ERBSConfig
 from erbs_plugin.models import CardPayload
 
 EXPECTED_OPERATIONS = {
+    "search", "character-stats", "character-equipment", "tier-stats", "tier-cutoffs",
     "overview",
     "rank",
     "stats",
@@ -81,6 +82,15 @@ async def test_private_database_round_trip_marks_cached_payload(tmp_path) -> Non
             "SELECT operation, expires_at > created_at FROM query_cache"
         ).fetchone()
     assert row == ("overview", 1)
+
+
+@pytest.mark.asyncio
+async def test_scoring_version_prevents_reusing_old_style_payloads(tmp_path) -> None:
+    database = QueryCacheDatabase(tmp_path / "queries.sqlite3")
+    old_spec = _spec("radar")
+    del old_spec["scoringVersion"]
+    await database.set(old_spec, CardPayload(kind="radar", title="old style"), ttl=300)
+    assert await database.get(_spec("radar")) is None
 
 
 @pytest.mark.asyncio

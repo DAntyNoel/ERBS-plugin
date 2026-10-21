@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..models import CardPayload
+from ..scoring import AXES_VERSION, SCORING_VERSION
 
 _SCHEMA_VERSION = 1
 _CACHE_NOTICE = "缓存命中，数据可能不是最新"
@@ -29,9 +30,20 @@ def query_cache_spec(
     page: int,
     season: str | None,
     weapon: str | None,
+    mode: str = "RANK",
+    tier: str = "diamond_plus",
+    server: str = "seoul",
+    web_base_url: str = "https://dak.gg/er",
+    ercraft_api_fallback: bool = False,
+    ercraft_api_base_url: str = "https://api.ercraft.net",
 ) -> dict[str, Any]:
     return {
+        "queryVersion": "dak-collectors-v2",
         "operation": operation,
+        "mode": mode,
+        "tier": tier,
+        "server": server,
+        "webBaseUrl": web_base_url,
         "arguments": list(arguments),
         "count": count,
         "page": page,
@@ -39,6 +51,10 @@ def query_cache_spec(
         "weapon": weapon,
         "apiBaseUrl": api_base_url,
         "language": language,
+        "scoringVersion": SCORING_VERSION,
+        "radarVersion": AXES_VERSION,
+        "ercraftApiFallback": ercraft_api_fallback,
+        "ercraftApiBaseUrl": ercraft_api_base_url,
     }
 
 

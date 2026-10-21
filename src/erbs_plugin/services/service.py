@@ -3,15 +3,19 @@ from __future__ import annotations
 import asyncio
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from rapidfuzz import fuzz, process
 
 from ..analysis import ERBSAnalysisService
 from ..client import AsyncERBSClient
-from ..exceptions import InvalidQuery
+from ..exceptions import ERBSError, InvalidQuery, RateLimited, UpstreamUnavailable
 from ..models import CardPayload, MatchRecord, PlayerProfile
-from ..radar import RadarDataSource, RadarScorer, build_radar_section
+from ..radar import RadarDataSource, RadarProfile, RadarSample, RadarScorer, build_radar_section
+from ..radar.scoring import published_profile
+from ..scoring import score_match
+from .dak_queries import DakQueryMixin
 
 _MMR_CHART_MATCH_COUNT = 20
 _TIER_NAMES = {
@@ -33,7 +37,7 @@ def _items_section(title: str, items: list[Mapping[str, Any]]) -> Mapping[str, A
     return {"title": title, "type": "items", "items": items}
 
 
-class ERBSService:
+class ERBSService(DakQueryMixin):
     def __init__(self, client: AsyncERBSClient) -> None:
         self.client = client
         self.analysis = ERBSAnalysisService()
@@ -108,16 +112,14 @@ class ERBSService:
         }
         overview_sections: list[Mapping[str, Any]] = [season_section]
         if radar_sample.matches:
-            radar_profile = RadarScorer().score(radar_sample)
+            radar_profile = await self._radar_profile(radar_sample, count=20)
             season_section["radar"] = {
                 **build_radar_section(radar_profile),
                 "compact": True,
             }
         rank_section = {**self._rank_section(profile), "layout": "half"}
         recent_sections[0] = {**recent_sections[0], "layout": "half"}
-        overview_sections.extend(
-            (rank_section, *recent_sections, self._hero_pool_section(heroes))
-        )
+        overview_sections.extend((rank_section, *recent_sections, self._hero_pool_section(heroes)))
         return CardPayload(
             kind="player",
             title=profile.nickname,
@@ -162,9 +164,7 @@ class ERBSService:
     async def matches_card(self, nickname: str, *, count: int = 5) -> CardPayload:
         if not 1 <= count <= 20:
             raise InvalidQuery("战绩数量必须在 1 到 20 之间")
-        matches, character_map, item_map = await self._matches_with_names(
-            nickname, count=count
-        )
+        matches, character_map, item_map = await self._matches_with_names(nickname, count=count)
         return CardPayload(
             kind="matches",
             title=nickname,
@@ -192,17 +192,37 @@ class ERBSService:
         )
 
     async def radar_card(self, nickname: str, *, count: int = 20) -> CardPayload:
-        sample = await RadarDataSource(self.client).fetch(nickname, count=count)
-        if not sample.matches:
-            raise InvalidQuery("没有可用于风格雷达的排位三排记录")
-        profile = RadarScorer().score(sample)
+        try:
+            sample = await RadarDataSource(self.client).fetch(nickname, count=count)
+        except (UpstreamUnavailable, RateLimited):
+            if not self.client.config.ercraft_api_fallback:
+                raise
+            sample = RadarSample(nickname=nickname.strip(), matches=())
+        profile = await self._radar_profile(sample, count=count)
+        if not sample.matches and profile.source == "local":
+            raise InvalidQuery("没有可用于实战评分的排位三排记录")
+        footer = self._plain_footer(cached=profile.cached)
+        if profile.source == "ercraft-api-fallback":
+            footer["source"] = "ERCraft / DAK.GG"
         return CardPayload(
             kind="radar",
             title=profile.nickname,
-            subtitle="排位风格",
+            subtitle="排位评分",
             sections=(build_radar_section(profile),),
-            footer=self._plain_footer(cached=profile.cached),
+            footer=footer,
         )
+
+    async def _radar_profile(self, sample: RadarSample, *, count: int) -> RadarProfile:
+        local = RadarScorer().score(sample)
+        if not self.client.config.ercraft_api_fallback or all(
+            dimension.score is not None for dimension in local.dimensions
+        ):
+            return local
+        try:
+            payload = await self.client.published_role_axes(sample.nickname, count=count)
+        except ERBSError as exc:
+            return replace(local, fallback_reason=str(exc))
+        return published_profile(sample.nickname, payload)
 
     async def characters_card(self, nickname: str) -> CardPayload:
         profile, metadata = await asyncio.gather(
@@ -245,8 +265,7 @@ class ERBSService:
                     "最近战绩中的皮肤",
                     [
                         {
-                            "name": skin_map.get(skin_code, {}).get("name")
-                            or f"Skin {skin_code}",
+                            "name": skin_map.get(skin_code, {}).get("name") or f"Skin {skin_code}",
                             "imageUrl": skin_map.get(skin_code, {}).get("imageUrl"),
                             "skinCode": skin_code,
                             "count": count,
@@ -304,10 +323,7 @@ class ERBSService:
             sections=(
                 _items_section(
                     "最近共同游戏",
-                    [
-                        {"name": name, "games": games}
-                        for name, games in teammates.most_common(20)
-                    ],
+                    [{"name": name, "games": games} for name, games in teammates.most_common(20)],
                 ),
             ),
             footer=self._plain_footer(cached=bool(data.get("_erbs_cached"))),
@@ -401,77 +417,37 @@ class ERBSService:
             footer=self._plain_footer(cached=bool(data.get("_erbs_cached"))),
         )
 
-    async def character_card(self, query: str, *, weapon: str | None = None) -> CardPayload:
-        character = await self.resolve_metadata("characters", query, "characters")
-        weapon_key, weapon_id = self._resolve_weapon(character, weapon)
-        detail = await self.client.character_detail(
-            str(character.get("key") or character["id"]),
-            weapon_type=weapon_key,
-        )
-        snapshot = detail.get("characterDetailStatSnapshot") or {}
-        character_stats = (
-            snapshot.get("characterDetailStat")
-            if isinstance(snapshot, Mapping)
-            else {}
-        ) or {}
-        weapon_stats = (
-            character_stats.get("weaponStats")
-            if isinstance(character_stats, Mapping)
-            else ()
-        ) or ()
-        selected = next(
-            (
-                item
-                for item in weapon_stats
-                if isinstance(item, Mapping) and int(item.get("key") or 0) == weapon_id
-            ),
-            {},
-        )
-        play = int(selected.get("count") or 0)
-
-        def average(key: str) -> str:
-            return f"{float(selected.get(key) or 0) / play:.2f}" if play else "-"
-
-        return CardPayload(
-            kind="global",
-            title=str(character.get("name") or query),
-            subtitle=f"角色强度 · {weapon_key}",
-            sections=(
-                {
-                    "title": "当前版本统计",
-                    "type": "stats",
-                    "items": [
-                        {"label": "场次", "value": play},
-                        {
-                            "label": "胜率",
-                            "value": f"{int(selected.get('win') or 0) / play * 100:.1f}%"
-                            if play
-                            else "-",
-                        },
-                        {
-                            "label": "TOP 3",
-                            "value": f"{int(selected.get('top3') or 0) / play * 100:.1f}%"
-                            if play
-                            else "-",
-                        },
-                        {"label": "平均排名", "value": f"#{average('place')}"},
-                        {"label": "平均 TK", "value": average("teamKill")},
-                        {"label": "平均 K", "value": average("playerKill")},
-                        {"label": "平均 D", "value": average("playerDeaths")},
-                        {"label": "平均伤害", "value": average("damageToPlayer")},
-                    ],
-                },
-            ),
-            footer=self._plain_footer(cached=bool(detail.get("_erbs_cached"))),
-        )
+    async def character_card(
+        self,
+        query: str,
+        *,
+        weapon: str | None = None,
+        mode: str = "RANK",
+        tier: str = "diamond_plus",
+    ) -> CardPayload:
+        return await self.character_analysis_card(query, weapon=weapon, mode=mode, tier=tier)
 
     async def item_card(self, query: str) -> CardPayload:
         item = await self.resolve_metadata("items", query, "items")
+        metadata = await self.client.metadata("items")
+        item_map = {
+            str(row["id"]): row
+            for row in metadata.get("items", [])
+            if isinstance(row, Mapping) and "id" in row
+        }
+        material_ids = item.get("makeMaterials")
+        if material_ids is None:
+            material_ids = [item.get("makeMaterial1"), item.get("makeMaterial2")]
+        materials = [
+            item_map.get(str(identifier), {"id": identifier, "name": f"材料 {identifier}"})
+            for identifier in material_ids
+            if identifier
+        ]
         return CardPayload(
             kind="global",
             title=str(item.get("name") or query),
             subtitle="物品详情",
-            sections=(_items_section("属性", [item]),),
+            sections=(_items_section("属性", [item]), _items_section("合成材料", materials)),
             footer=self._plain_footer(),
         )
 
@@ -492,9 +468,7 @@ class ERBSService:
         )
 
     @staticmethod
-    def _resolve_weapon(
-        character: Mapping[str, Any], weapon: str | None
-    ) -> tuple[str, int]:
+    def _resolve_weapon(character: Mapping[str, Any], weapon: str | None) -> tuple[str, int]:
         weapon_types = [
             item
             for item in character.get("weaponTypes") or ()
@@ -522,23 +496,53 @@ class ERBSService:
     async def resolve_metadata(
         self, metadata_name: str, query: str, collection_name: str
     ) -> dict[str, Any]:
+        query = query.strip()
+        if not query:
+            raise InvalidQuery("请输入名称、ID 或拼音")
         data = await self.client.metadata(metadata_name)
         collection = [
-            dict(item)
-            for item in data.get(collection_name, ())
-            if isinstance(item, Mapping)
+            dict(item) for item in data.get(collection_name, ()) if isinstance(item, Mapping)
         ]
         exact = next(
             (
                 item
                 for item in collection
                 if query.casefold()
-                in {str(item.get("name", "")).casefold(), str(item.get("key", "")).casefold()}
+                in {
+                    str(item.get("name", "")).casefold(),
+                    str(item.get("key", "")).casefold(),
+                    str(item.get("id", "")),
+                }
             ),
             None,
         )
         if exact:
             return exact
+        from pypinyin import Style, lazy_pinyin
+
+        phonetic = query.strip().casefold().replace(" ", "")
+        matches = [
+            item
+            for item in collection
+            if phonetic
+            in {
+                "".join(lazy_pinyin(str(item.get("name", "")))).casefold(),
+                "".join(
+                    lazy_pinyin(str(item.get("name", "")), style=Style.FIRST_LETTER)
+                ).casefold(),
+            }
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            choices = " / ".join(str(item.get("name")) for item in matches[:15])
+            raise InvalidQuery(f"拼音匹配多个结果，请使用完整名称或 ID：{choices}")
+        partial = [
+            item for item in collection if query.casefold() in str(item.get("name", "")).casefold()
+        ]
+        if len(partial) > 1:
+            choices = " / ".join(f"{item.get('name')} ({item.get('id')})" for item in partial[:15])
+            raise InvalidQuery(f"找到多个结果，请使用完整名称或 ID：{choices}")
         names = {str(item.get("name") or item.get("key")): item for item in collection}
         matched = process.extractOne(query, names.keys(), scorer=fuzz.WRatio, score_cutoff=55)
         if not matched:
@@ -634,9 +638,7 @@ class ERBSService:
 
     @staticmethod
     def _mmr_chart_section(matches: list[MatchRecord]) -> Mapping[str, Any] | None:
-        chart_matches = [
-            match for match in matches[:_MMR_CHART_MATCH_COUNT] if match.mmr_after > 0
-        ]
+        chart_matches = [match for match in matches[:_MMR_CHART_MATCH_COUNT] if match.mmr_after > 0]
         if not chart_matches:
             return None
 
@@ -706,9 +708,7 @@ class ERBSService:
 
     async def _matches_with_names(
         self, nickname: str, *, count: int
-    ) -> tuple[
-        list[MatchRecord], dict[int, Mapping[str, Any]], dict[int, Mapping[str, Any]]
-    ]:
+    ) -> tuple[list[MatchRecord], dict[int, Mapping[str, Any]], dict[int, Mapping[str, Any]]]:
         matches, characters, items = await asyncio.gather(
             self.matches(nickname, count=count, matching_mode="RANK"),
             self.client.metadata("characters"),
@@ -761,6 +761,7 @@ class ERBSService:
             "deaths": match.deaths,
             "teamKills": match.team_kills,
             "damage": match.damage,
+            "performance": score_match(match.raw),
             "mmrGain": match.mmr_gain,
             "mmrAfter": match.mmr_after,
             "routeId": match.route_id or "Private",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -87,11 +89,9 @@ async def test_player_overview_card() -> None:
     assert "layout" not in card.sections[0]
     assert card.sections[0]["radar"]["type"] == "radar"
     assert card.sections[0]["radar"]["compact"] is True
-    assert len(card.sections[0]["radar"]["axes"]) == 8
+    assert len(card.sections[0]["radar"]["axes"]) == 6
     assert card.sections[1]["type"] == "rank"
-    assert card.sections[1]["imageUrl"] == (
-        "//cdn.dak.gg/assets/er/images/rank/full/7.png"
-    )
+    assert card.sections[1]["imageUrl"] == ("//cdn.dak.gg/assets/er/images/rank/full/7.png")
     assert card.sections[1]["layout"] == "half"
     assert card.sections[1]["tierId"] == 7
     assert card.sections[1]["tierName"] == "半神"
@@ -194,11 +194,7 @@ async def test_recent_card_includes_mmr_chart_between_summary_and_placements() -
         if request.url.path.endswith("/data/characters"):
             return httpx.Response(
                 200,
-                json={
-                    "characters": [
-                        {"id": 31, "name": "艾玛", "imageUrl": "asset://emma"}
-                    ]
-                },
+                json={"characters": [{"id": 31, "name": "艾玛", "imageUrl": "asset://emma"}]},
             )
         raise AssertionError(request.url.path)
 
@@ -220,7 +216,7 @@ async def test_recent_card_includes_mmr_chart_between_summary_and_placements() -
 
 
 @pytest.mark.asyncio
-async def test_radar_card_uses_ranked_squad_match_style_data() -> None:
+async def test_radar_card_uses_ranked_squad_match_performance_data() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/matches")
         assert request.url.params["matchingMode"] == "RANK"
@@ -231,6 +227,12 @@ async def test_radar_card_uses_ranked_squad_match_style_data() -> None:
                 "matches": [
                     {
                         "gameId": 100 + index,
+                        "gameRank": 4,
+                        "seasonId": 41,
+                        "characterNum": 67,
+                        "bestWeapon": 14,
+                        "mmrAfter": 4400,
+                        "mmrGain": 0,
                         "matchingMode": 3,
                         "matchingTeamMode": 3,
                         "playTime": 1200,
@@ -258,10 +260,12 @@ async def test_radar_card_uses_ranked_squad_match_style_data() -> None:
         await client.aclose()
 
     assert card.kind == "radar"
-    assert card.subtitle == "排位风格"
+    assert card.subtitle == "排位评分"
     assert card.sections[0]["type"] == "radar"
-    assert len(card.sections[0]["axes"]) == 8
+    assert len(card.sections[0]["axes"]) == 6
     assert card.footer["source"] == "DAK.GG"
+    assert card.sections[0]["scoredMatches"] == 20
+    assert card.sections[0]["overallScore"] is not None
 
 
 @pytest.mark.asyncio
@@ -298,29 +302,35 @@ async def test_character_and_routes_cards_use_real_character_key_and_weapon() ->
                     ]
                 },
             )
-        if request.url.path.endswith("/character-stats"):
-            return httpx.Response(
-                200,
-                json={
-                    "characterDetailStatSnapshot": {
-                        "characterDetailStat": {
-                            "weaponStats": [
-                                {
-                                    "key": 24,
-                                    "count": 10,
-                                    "win": 2,
-                                    "top3": 5,
-                                    "place": 37,
-                                    "teamKill": 80,
-                                    "playerKill": 30,
-                                    "playerDeaths": 20,
-                                    "damageToPlayer": 120000,
-                                }
-                            ]
-                        }
+        if request.url.path.endswith("/characters/Emma"):
+            data = {
+                "characterDetailStatSnapshot": {
+                    "characterDetailStat": {
+                        "weaponStats": [
+                            {
+                                "key": 24,
+                                "count": 10,
+                                "win": 2,
+                                "top3": 5,
+                                "place": 37,
+                                "teamKill": 80,
+                                "playerKill": 30,
+                                "damageToPlayer": 120000,
+                            }
+                        ]
                     }
-                },
+                }
+            }
+            page = {
+                "props": {
+                    "pageProps": {"dehydratedState": {"queries": [{"state": {"data": data}}]}}
+                }
+            }
+            return httpx.Response(
+                200, text='<script id="__NEXT_DATA__">' + json.dumps(page) + "</script>"
             )
+        if "/data/" in request.url.path:
+            return httpx.Response(200, json={"masteries": [{"id": 24, "name": "阿尔卡纳"}]})
         if request.url.path.endswith("/routes"):
             return httpx.Response(200, json={"weaponRoutes": [{"id": 2582, "title": "route"}]})
         raise AssertionError(request.url.path)
@@ -332,17 +342,13 @@ async def test_character_and_routes_cards_use_real_character_key_and_weapon() ->
     finally:
         await client.aclose()
 
-    assert character.subtitle == "角色强度 · Arcana"
-    assert [item["value"] for item in character.sections[0]["items"]] == [
-        10,
-        "20.0%",
-        "50.0%",
-        "#3.70",
-        "8.00",
-        "3.00",
-        "2.00",
-        "12000.00",
-    ]
+    assert character.subtitle == "角色详情 · RANK · diamond_plus"
+    summary = character.sections[0]["items"][0]
+    assert summary["games"] == 10
+    assert summary["winRate"] == 20.0
+    assert summary["top3Rate"] == 50.0
+    assert summary["avgRank"] == 3.7
+    assert summary["avgDamage"] == 12000.0
     assert routes.sections[0]["items"] == [{"id": 2582, "title": "route"}]
     route_request = next(request for request in requests if request.url.path.endswith("/routes"))
     assert "character=Emma" in route_request.url.query.decode()

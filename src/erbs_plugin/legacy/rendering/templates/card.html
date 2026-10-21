@@ -70,7 +70,7 @@
         {% if section.get('radar') %}
         {% set overview_radar = section.radar %}
         <div class="overview-radar">
-          <svg viewBox="45 10 350 350" role="img" aria-label="玩家八维实战风格雷达图">
+          <svg viewBox="0 0 440 370" role="img" aria-label="玩家六维实战评分雷达图">
             <defs>
               <linearGradient id="overview-radar-fill" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stop-color="#5effdc" stop-opacity=".42"></stop>
@@ -91,10 +91,12 @@
             <polygon class="overview-radar-score-halo" points="{{ overview_radar.scorePoints }}"></polygon>
             <polygon class="overview-radar-score-area" filter="url(#overview-radar-glow)" points="{{ overview_radar.scorePoints }}"></polygon>
             {% for axis in overview_radar.axes %}
+            {% if axis.score is not none %}
             <g class="radar-score-point">
               <title>{{ axis.label }}：{{ axis.score }} · {{ axis.description }}</title>
               <circle cx="{{ axis.scoreX }}" cy="{{ axis.scoreY }}" r="4.5"></circle>
             </g>
+            {% endif %}
             <text class="radar-axis-label" x="{{ axis.compactLabelX }}" y="{{ axis.labelY }}" text-anchor="{{ axis.compactAnchor }}">
               <tspan>{{ axis.label }}</tspan>
             </text>
@@ -208,7 +210,7 @@
         {% elif section.type == "radar" %}
         <div class="radar-layout{% if section.get('compact') %} radar-layout-compact{% endif %}">
           <div class="radar-chart">
-            <svg viewBox="{% if section.get('compact') %}40 0 360 370{% else %}0 0 440 370{% endif %}" role="img" aria-label="玩家八维实战风格雷达图">
+            <svg viewBox="0 0 440 370" role="img" aria-label="玩家六维实战评分雷达图">
               <defs>
                 <linearGradient id="radar-fill" x1="0" y1="0" x2="1" y2="1">
                   <stop offset="0%" stop-color="#5effdc" stop-opacity=".42"></stop>
@@ -229,26 +231,28 @@
               <polygon class="radar-score-halo" points="{{ section.scorePoints }}"></polygon>
               <polygon class="radar-score-area" filter="url(#radar-glow)" points="{{ section.scorePoints }}"></polygon>
               {% for axis in section.axes %}
+              {% if axis.score is not none %}
               <g class="radar-score-point">
                 <title>{{ axis.label }}：{{ axis.score }} · {{ axis.description }}</title>
                 <circle cx="{{ axis.scoreX }}" cy="{{ axis.scoreY }}" r="4.5"></circle>
               </g>
+              {% endif %}
               <text class="radar-axis-label" x="{{ axis.compactLabelX if section.get('compact') else axis.labelX }}" y="{{ axis.labelY }}" text-anchor="{{ axis.compactAnchor if section.get('compact') else axis.anchor }}">
                 <tspan>{{ axis.label }}</tspan>
               </text>
               {% endfor %}
             </svg>
-            {% if not section.get('compact') %}<p>倾向强度而非能力评分 · 50 为当前校准中点</p>{% endif %}
+            {% if not section.get('compact') %}<p>ERCraft 六维标准 · {{ section.sourceLabel }}</p>{% endif %}
           </div>
           {% if not section.get('compact') %}
           <aside class="radar-summary">
             <div class="radar-summary-head">
-              <span>STYLE PROFILE</span>
-              <strong>{{ section.sampleSize }}<small>场样本</small></strong>
+              <span>结果表现</span>
+              <strong>{{ section.overallScore if section.overallScore is not none else '—' }}<small>分</small></strong>
               <em class="confidence-{{ section.confidence }}">置信度 {{ section.confidenceLabel }}</em>
             </div>
             <div class="radar-top-styles">
-              <span>突出风格</span>
+              <span>突出表现</span>
               {% for style in section.topStyles %}
               <div><b>0{{ loop.index }}</b><strong>{{ style.label }}</strong><em>{{ style.score }}</em></div>
               {% endfor %}
@@ -257,12 +261,13 @@
               {% for item in section['items'] %}
               <div>
                 <span>{{ item.label }}</span>
-                <i><b style="width: {{ item.score }}%"></b></i>
-                <strong>{{ item.score }}</strong>
+                <i><b style="width: {{ item.score if item.score is not none else 0 }}%"></b></i>
+                <strong>{{ item.score if item.score is not none else '—' }}</strong>
               </div>
               {% endfor %}
             </div>
-            <p>{{ section.totalMinutes }} 分钟有效数据 · {{ section.calibrationVersion }}</p>
+            <p>{{ section.scoredMatches }} / {{ section.sampleSize }} 场可评分 · {{ section.completeMatches }} 场完整数据</p>
+            <p>{{ section.sourceLabel }} · 缺项显示 —</p>
           </aside>
           {% endif %}
         </div>
@@ -301,6 +306,7 @@
                 <div class="match-heading">
                   <span class="match-rank">#{{ item.rank }}</span>
                   <strong>{{ item.characterName }}</strong>
+                  {% if item.get('performance') %}<small>评分 {{ item.performance.score if item.performance.score is not none else '—' }}</small>{% endif %}
                 </div>
                 <div class="match-rp">
                   <span class="{% if item.mmrGain > 0 %}gain-positive{% elif item.mmrGain < 0 %}gain-negative{% endif %}">{% if item.mmrGain > 0 %}+{% endif %}{{ item.mmrGain }} RP</span>

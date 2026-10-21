@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 from base64 import b64decode
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -12,6 +14,8 @@ import httpx
 from platformdirs import user_data_path
 
 from ..exceptions import AssetMissing
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -149,11 +153,13 @@ class AssetManager:
         concurrency: int = 4,
         force: bool = False,
         version: str = "unknown",
+        strict: bool = True,
     ) -> dict[str, AssetEntry]:
         self.directory.mkdir(parents=True, exist_ok=True)
         entries = self.load_manifest()
-        semaphore = __import__("asyncio").Semaphore(max(1, concurrency))
+        semaphore = asyncio.Semaphore(max(1, concurrency))
         async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+
             async def fetch(key: str, url: str) -> None:
                 parsed = urlparse(url if "://" in url else f"https:{url}")
                 normalized_url = parsed.geturl()
@@ -192,10 +198,15 @@ class AssetManager:
                     placeholder=placeholder,
                 )
 
-            import asyncio
-
-            await asyncio.gather(*(fetch(key, url) for key, url in assets.items()))
+            results = await asyncio.gather(
+                *(fetch(key, url) for key, url in assets.items()), return_exceptions=True
+            )
         self.save_manifest(entries, version=version)
+        for result in results:
+            if isinstance(result, Exception):
+                if strict:
+                    raise result
+                _log.warning("图片资源下载失败：%s", result)
         return entries
 
     def prune(self, valid_keys: set[str]) -> list[str]:
