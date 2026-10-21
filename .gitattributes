@@ -1,0 +1,2 @@
+# Preserve the exact upstream bytes verified by scoring/data/provenance.json.
+src/erbs_plugin/scoring/data/*.json -text
