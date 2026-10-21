@@ -38,7 +38,7 @@ def query_cache_spec(
     ercraft_api_base_url: str = "https://api.ercraft.net",
 ) -> dict[str, Any]:
     return {
-        "queryVersion": "dak-collectors-v2",
+        "queryVersion": "dak-desktop-v3",
         "operation": operation,
         "mode": mode,
         "tier": tier,

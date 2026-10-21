@@ -54,6 +54,7 @@ def weapon_summary(
         "tierScore": weapon.get("tierScore"),
         "rank": rank.get("count"),
         "rankSize": rank.get("size"),
+        "metricRanks": rank,
         "games": count,
         "pickRate": ratio(count, total, 100),
         "winRate": ratio(weapon.get("win"), count, 100),
@@ -75,6 +76,8 @@ def pick(raw: Mapping[str, Any], refs: Mapping[str, Mapping[str, Any]], total: A
         "games": raw.get("count"),
         "pickRate": ratio(raw.get("count"), total, 100),
         "winRate": ratio(raw.get("win"), raw.get("count"), 100),
+        "avgRank": ratio(raw.get("place"), raw.get("count")),
+        "grade": metadata.get("grade"),
     }
 
 
@@ -96,15 +99,15 @@ class DakQueryMixin:
         mode = normalize_mode(mode)
         if not 1 <= count <= 20:
             raise InvalidQuery("战绩数量必须在 1 到 20 之间")
-        profile, characters, items = await asyncio.gather(
+        profile, characters, items, seasons = await asyncio.gather(
             self.profile(nickname, season=season),
             self.client.metadata("characters"),
             self.client.metadata("items"),
+            self.client.metadata("seasons"),
         )
         latest = next(iter(rows(profile.raw.get("playerSeasons"))), None)
         season_key = season
         if season is not None:
-            seasons = await self.client.metadata("seasons")
             requested = next(
                 (
                     row
@@ -135,7 +138,6 @@ class DakQueryMixin:
             )
         # Inactive players must use the season they last played, not today's season.
         if season_key is None and profile.season_id is not None:
-            seasons = await self.client.metadata("seasons")
             latest = next(
                 (row for row in rows(seasons.get("seasons")) if row.get("id") == profile.season_id),
                 None,
@@ -162,11 +164,15 @@ class DakQueryMixin:
                 "play",
                 "win",
                 "top3",
+                "top2",
                 "damageToPlayer",
                 "teamKill",
                 "playerKill",
                 "playerAssistant",
                 "place",
+                "monsterKill",
+                "totalGainVFCredit",
+                "viewContribution",
             )
             overview = {
                 key: sum(values)
@@ -190,8 +196,16 @@ class DakQueryMixin:
         profile = replace(
             profile, overview=overview, characters=tuple(rows(overview.get("characterStats")))
         )
-        matches = await self.matches(
-            nickname, count=count, season=season_key, matching_mode=mode, team_mode=team_mode(mode)
+        matches, traits, tacticals = await asyncio.gather(
+            self.matches(
+                nickname,
+                count=count,
+                season=season_key,
+                matching_mode=mode,
+                team_mode=team_mode(mode),
+            ),
+            self.client.metadata("trait-skills"),
+            self.client.metadata("tactical-skills"),
         )
         char_map = {int(key): row for key, row in index(characters, "characters").items()}
         item_map = {int(key): row for key, row in index(items, "items").items()}
@@ -214,14 +228,116 @@ class DakQueryMixin:
                     ),
                 }
             )
-        sections = [section("赛季概览", stats, "stats")]
+        for label, key in (
+            ("TOP 2 %", "top2"),
+            ("TOP 3 %", "top3"),
+            ("平均野怪击杀", "monsterKill"),
+            ("平均Credit获得", "totalGainVFCredit"),
+            ("平均视野贡献", "viewContribution"),
+        ):
+            stats.append(
+                {
+                    "label": label,
+                    "value": ratio(
+                        overview.get(key),
+                        overview.get("play"),
+                        100 if key.startswith("top") else 1,
+                    ),
+                }
+            )
+        season_name = next(
+            (
+                row.get("name") or row.get("key")
+                for row in rows(seasons.get("seasons"))
+                if row.get("id") == profile.season_id
+            ),
+            season_key,
+        )
+        heroes = sorted(
+            rows(overview.get("characterStats")),
+            key=lambda row: number(row.get("play")) or 0,
+            reverse=True,
+        )
+        main_hero = next(iter(heroes), {})
+        hero = char_map.get(main_hero.get("key"), {})
+        skin = max(
+            rows(main_hero.get("skinStats")),
+            key=lambda row: number(row.get("updatedAt")) or 0,
+            default={},
+        )
+        skin_ref = next(
+            (row for row in rows(hero.get("skins")) if row.get("id") == skin.get("key")), {}
+        )
+        avatar = skin_ref.get("imageUrl") or hero.get("imageUrl")
+        player_info = {
+            "level": profile.account_level,
+            "imageUrl": avatar,
+            "bannerUrl": "https://cdn.dak.gg/er/images/bg/bg-top.jpg",
+            "seasonName": season_name,
+            "modeName": {"RANK": "排位", "NORMAL": "匹配", "COBALT": "钴协议", "ALL": "全部"}[mode],
+            "mmrHistory": [
+                {"date": row[0], "mmr": row[1]}
+                for row in overview.get("mmrStats") or []
+                if isinstance(row, list) and len(row) >= 2
+            ][:7][::-1],
+        }
+        sections = [{**section("赛季概览", stats, "stats"), "profile": player_info}]
         if mode == "RANK":
-            sections.append(self._rank_section(profile))
+            rank_section = dict(self._rank_section(profile))
+            if rank_section.get("imageUrl"):
+                rank_section["imageUrl"] = rank_section["imageUrl"].replace("/full/", "/round/")
+            sections.append(rank_section)
         sections.extend(self._recent_sections(matches, characters))
         sections.append(self._hero_pool_section(self._hero_pool_items(profile, characters)))
-        sections.append(
-            section("最近对局", [self._match_item(row, char_map, item_map) for row in matches])
-        )
+        trait_map = index(traits, "traitSkills")
+        tactical_map = index(tacticals, "tacticalSkills")
+        match_items = []
+        for match in matches:
+            entry = self._match_item(match, char_map, item_map)
+            skin_ref = next(
+                (
+                    row
+                    for row in rows(char_map.get(match.character_id, {}).get("skins"))
+                    if row.get("id") == match.skin_code
+                ),
+                {},
+            )
+            if skin_ref.get("imageUrl"):
+                entry["imageUrl"] = skin_ref["imageUrl"].replace("CharResult_", "CharProfile_")
+            raw = match.raw
+            trait_ids = [
+                raw.get("traitFirstCore"),
+                *(raw.get("traitFirstSub") or []),
+                *(raw.get("traitSecondSub") or []),
+            ]
+            tactical = tactical_map.get(str(raw.get("tacticalSkillGroup")), {})
+            entry.update(
+                level=raw.get("characterLevel"),
+                startedAt=raw.get("startDtm"),
+                modeName={2: "匹配", 3: "排位", 6: "钴协议"}.get(raw.get("matchingMode"), "对局"),
+                matchingMode=raw.get("matchingMode"),
+                traitSkills=[
+                    {"imageUrl": trait_map[str(key)].get("imageUrl")}
+                    for key in trait_ids
+                    if str(key) in trait_map
+                ],
+                tacticalSkill={"imageUrl": tactical.get("imageUrl")},
+            )
+            match_items.append(entry)
+        sections.append(section("最近对局", match_items))
+        teammates = []
+        for teammate in rows(overview.get("duoStats"))[:5]:
+            teammate_hero = next(iter(rows(teammate.get("characterStats"))), {})
+            teammates.append(
+                {
+                    "name": teammate.get("nickname"),
+                    "plays": teammate.get("play"),
+                    "winRate": ratio(teammate.get("win"), teammate.get("play"), 100),
+                    "avgRank": ratio(teammate.get("place"), teammate.get("play")),
+                    "imageUrl": char_map.get(teammate_hero.get("key"), {}).get("imageUrl"),
+                }
+            )
+        sections[0]["teammates"] = teammates
         footer = {
             **self._footer(profile),
             "mode": mode,
@@ -294,13 +410,30 @@ class DakQueryMixin:
         selected = candidates[0]
         count = selected.get("count")
         summaries = [
-            weapon_summary(row, snapshot.get("tierGameCount"), weapons.get(str(row.get("key")), {}))
+            weapon_summary(
+                row,
+                snapshot.get("tierCount") or snapshot.get("tierGameCount"),
+                weapons.get(str(row.get("key")), {}),
+            )
             for row in candidates
         ]
-        sections = [section("武器流派", summaries, "character-stats")]
+        sections = [
+            {
+                **section("武器流派", summaries, "character-stats"),
+                "character": {
+                    "imageUrl": character.get("imageUrl"),
+                    "skills": [
+                        {"name": slot, "imageUrl": skills[slot].get("imageUrl")}
+                        for slot in ("Q", "W", "E", "R", "T")
+                        if slot in skills
+                    ],
+                    "patch": snapshot.get("patch"),
+                },
+            }
+        ]
         builds = []
         all_builds = rows(selected.get("itemBuildStats"))
-        for raw in popular(all_builds, 4):
+        for raw in popular(all_builds, 5):
             equipment = [
                 pick({"key": identifier}, items, None) for identifier in raw.get("key", [])
             ]
@@ -319,6 +452,18 @@ class DakQueryMixin:
                     "games": raw.get("count"),
                     "pickRate": ratio(raw.get("count"), count, 100),
                     "winRate": ratio(raw.get("win"), raw.get("count"), 100),
+                    "avgRank": ratio(raw.get("place"), raw.get("count")),
+                    "orders": [
+                        {
+                            "equipmentItems": [
+                                equipment[int(digit) - 1]
+                                for digit in str(row.get("key", ""))
+                                if digit.isdigit() and 1 <= int(digit) <= len(equipment)
+                            ],
+                            "pickRate": ratio(row.get("count"), raw.get("count"), 100),
+                        }
+                        for row in popular(raw.get("orderStats"), 5)
+                    ],
                 }
             )
         sections.append(section("推荐出装 / 合成顺序", builds, "builds"))
@@ -341,6 +486,19 @@ class DakQueryMixin:
                     }
                 )
         sections.append(section("各部位装备", slot_picks))
+        # The site's item tables use itemStats, not a sum of only the shown builds.
+        if selected.get("itemStats"):
+            slot_picks = []
+            slots = ("武器", "胸甲", "头部", "手臂", "腿部")
+            for raw_slot in rows(selected.get("itemStats")):
+                position = raw_slot.get("key")
+                if not isinstance(position, int) or not 0 <= position < len(slots):
+                    continue
+                slot_picks.extend(
+                    {**pick(row, items, raw_slot.get("count")), "slot": slots[position]}
+                    for row in popular(raw_slot.get("stats"), 5)
+                )
+            sections[-1] = section("各部位装备", slot_picks)
         if not equipment_only:
             skill_builds = []
             for raw in popular(selected.get("skillBuildStats"), 4):
@@ -353,6 +511,10 @@ class DakQueryMixin:
                         "skills": [
                             {"name": slot, "imageUrl": skills.get(slot, {}).get("imageUrl")}
                             for slot in list(order)[:15]
+                        ],
+                        "priority": [
+                            {"name": slot, "imageUrl": skills.get(slot, {}).get("imageUrl")}
+                            for slot in raw.get("key") or []
                         ],
                         "pickRate": ratio(raw.get("count"), count, 100),
                         "winRate": ratio(raw.get("win"), raw.get("count"), 100),
@@ -376,6 +538,20 @@ class DakQueryMixin:
                         "choices": [
                             pick(row, traits, raw.get("count"))
                             for row in popular(raw.get("stats"), 6)
+                        ],
+                        "builds": [
+                            {
+                                "choices": [
+                                    pick({"key": identifier}, traits, None)
+                                    for group in (row.get("key") or [])[1:]
+                                    for identifier in (
+                                        group if isinstance(group, list) else [group]
+                                    )
+                                ],
+                                "pickRate": ratio(row.get("count"), raw.get("count"), 100),
+                                "winRate": ratio(row.get("win"), row.get("count"), 100),
+                            }
+                            for row in popular(raw.get("buildStats"), 4)
                         ],
                     }
                 )

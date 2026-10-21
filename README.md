@@ -90,6 +90,11 @@ Python exports `search`, `character_equipment`, `character_stats`, `tier_stats`,
 and `execute_command`. Existing queries remain available. See the [command and migration guide](docs/DAK_QUERIES.zh-CN.md)
 for filters, endpoint behavior and examples.
 
+Player search and character analysis PNGs follow DAK.GG's desktop layout. Player cards use
+rank/statistics and match-history columns; character cards omit the character selector and keep
+the horizontal metrics, skill/tactical columns, augment combinations, and item tables.
+These are local Skia templates using the same structured JSON data, with no browser required.
+
 The previous HTML/CSS renderer, theme, fonts and SVG radar geometry are archived in
 [`legacy`](src/erbs_plugin/legacy/README.md). Explicit legacy use requires the `legacy-render`
 extra and `from erbs_plugin.legacy.rendering import HtmlCardRenderer`.

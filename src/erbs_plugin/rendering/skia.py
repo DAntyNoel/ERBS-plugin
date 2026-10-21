@@ -199,7 +199,18 @@ class SkiaCardRenderer:
             self._skia.Rect.MakeXYWH(x, y, w, h), radius, radius, self._paint(color)
         )
 
-    def _image(self, canvas: Any, source: Any, x: float, y: float, w: float, h: float) -> None:
+    def _image(
+        self,
+        canvas: Any,
+        source: Any,
+        x: float,
+        y: float,
+        w: float,
+        h: float,
+        *,
+        cover: bool = False,
+        background: int = BG,
+    ) -> None:
         if not isinstance(source, str) or not source:
             return
         if source.startswith(("https://", "http://", "//")):
@@ -242,13 +253,16 @@ class SkiaCardRenderer:
                 self._images.popitem(last=False)
         else:
             self._images.move_to_end(source)
-        self._rect(canvas, x, y, w, h, BG, 6)
+        self._rect(canvas, x, y, w, h, background, 3)
         if image is not None:
-            scale = min(w / image.width(), h / image.height())
+            scale = (max if cover else min)(w / image.width(), h / image.height())
             iw, ih = image.width() * scale, image.height() * scale
+            canvas.save()
+            canvas.clipRect(self._skia.Rect.MakeXYWH(x, y, w, h))
             canvas.drawImageRect(
                 image, self._skia.Rect.MakeXYWH(x + (w - iw) / 2, y + (h - ih) / 2, iw, ih)
             )
+            canvas.restore()
 
     @staticmethod
     def _items(section: Mapping) -> list[Mapping]:
@@ -355,6 +369,16 @@ class SkiaCardRenderer:
 
     def _render(self, payload: CardPayload) -> bytes:
         self._initialize()
+        from .dak import render_character, render_player
+
+        if payload.kind == "player" and payload.sections and payload.sections[0].get("profile"):
+            return render_player(self, payload)
+        if (
+            payload.kind == "character"
+            and payload.sections
+            and payload.sections[0].get("character")
+        ):
+            return render_character(self, payload)
         width = 1000 if payload.kind == "character" else 1290
         panel_width = width - 64
         heights = [self._height(section, panel_width) for section in payload.sections]

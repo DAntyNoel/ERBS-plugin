@@ -288,7 +288,7 @@ async def test_player_query_uses_latest_played_season_and_mode_not_today() -> No
             "items": {"items": []},
             "characters": {"characters": []},
         }
-        return httpx.Response(200, json=data[name])
+        return httpx.Response(200, json=data.get(name, {}))
 
     async with AsyncERBSClient(transport=httpx.MockTransport(handler)) as client:
         result = json.loads(
@@ -341,7 +341,7 @@ async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
             "items": {"items": []},
             "characters": {"characters": [CHARACTER]},
         }
-        return httpx.Response(200, json=data[request.url.path.rsplit("/", 1)[-1]])
+        return httpx.Response(200, json=data.get(request.url.path.rsplit("/", 1)[-1], {}))
 
     async with AsyncERBSClient(transport=httpx.MockTransport(handler)) as client:
         card = await ERBSService(client).search_player_card(
@@ -355,6 +355,39 @@ async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
     request = next(request for request in seen if request.url.path.endswith("/matches"))
     assert request.url.params["season"] == "SEASON_11"
     assert request.url.params["matchingMode"] == request.url.params["teamMode"] == "ALL"
+
+
+@pytest.mark.asyncio
+async def test_desktop_character_data_uses_population_items_and_trait_builds(monkeypatch):
+    monkeypatch.setitem(ANALYSIS["characterDetailStatSnapshot"], "tierCount", 400)
+    monkeypatch.setitem(
+        WEAPON,
+        "itemStats",
+        [
+            {"key": 0, "count": 50, "stats": [{"key": 1, "count": 25, "win": 5, "place": 100}]},
+        ],
+    )
+    monkeypatch.setitem(
+        WEAPON,
+        "traitCoreStats",
+        [
+            {
+                "key": 200,
+                "count": 20,
+                "win": 5,
+                "buildStats": [{"key": [200, [201], []], "count": 8, "win": 2}],
+            },
+        ],
+    )
+    async with AsyncERBSClient(transport=httpx.MockTransport(analysis_handler([]))) as client:
+        card = await ERBSService(client).character_analysis_card("Emma")
+    sections = {s["title"]: s["items"] for s in card.sections}
+    assert sections["武器流派"][0]["pickRate"] == 5
+    item = sections["各部位装备"][0]
+    assert (item["slot"], item["pickRate"], item["avgRank"]) == ("武器", 50, 4)
+    build = sections["潜能"][0]["builds"][0]
+    assert [choice["id"] for choice in build["choices"]] == [201]
+    assert (build["pickRate"], build["winRate"]) == (40, 25)
 
 
 @pytest.mark.asyncio
