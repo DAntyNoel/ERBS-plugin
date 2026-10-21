@@ -56,6 +56,14 @@ class FakeService:
         ("matches", ("player",), {"count": 7}, ("matches_card", ("player",), {"count": 7})),
         ("recent", ("player",), {}, ("recent_card", ("player",), {})),
         ("radar", ("player",), {}, ("radar_card", ("player",), {"count": 5})),
+        (
+            "summary", ("player",), {},
+            ("player_summary", ("player",), {"count": 20, "season": None}),
+        ),
+        (
+            "summary", ("player",), {"count": 5, "season": "41"},
+            ("player_summary", ("player",), {"count": 5, "season": "41"}),
+        ),
         ("characters", ("player",), {}, ("characters_card", ("player",), {})),
         ("skins", ("player",), {}, ("skins_card", ("player",), {})),
         ("teammates", ("player",), {}, ("teammates_card", ("player",), {})),
@@ -228,6 +236,21 @@ def test_radar_named_function_defaults_to_twenty_matches(monkeypatch) -> None:
 
     assert result == "result"
     assert calls == [("radar", "player", {"format": "json", "count": 20})]
+
+
+def test_summary_named_function_defaults_to_twenty_matches(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    async def fake_query(*args: object, **kwargs: object) -> str:
+        calls.append((*args, kwargs))
+        return "result"
+
+    monkeypatch.setattr(api_module, "query", fake_query)
+
+    result = asyncio.run(api_module.player_summary("player", format="json"))
+
+    assert result == "result"
+    assert calls == [("summary", "player", {"format": "json", "count": 20})]
 
 
 @pytest.mark.parametrize(

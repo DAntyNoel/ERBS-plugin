@@ -28,6 +28,7 @@ type QueryOperation = Literal[
     "matches",
     "recent",
     "radar",
+    "summary",
     "characters",
     "skins",
     "teammates",
@@ -110,6 +111,9 @@ async def _payload_for(
     if operation == "radar":
         _require_arguments(operation, arguments, 1)
         return await service.radar_card(arguments[0], count=count)
+    if operation == "summary":
+        _require_arguments(operation, arguments, 1)
+        return await service.player_summary(arguments[0], count=count, season=season)
     if operation == "characters":
         _require_arguments(operation, arguments, 1)
         return await service.characters_card(arguments[0])
@@ -207,7 +211,7 @@ async def query(
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
     renderer: CardRenderer | None = None,
-    count: int = 5,
+    count: int | None = None,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
@@ -226,7 +230,7 @@ async def query(
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
     renderer: CardRenderer | None = None,
-    count: int = 5,
+    count: int | None = None,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
@@ -245,7 +249,7 @@ async def query(
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
     renderer: CardRenderer | None = None,
-    count: int = 5,
+    count: int | None = None,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
@@ -263,7 +267,7 @@ async def query(
     config: ERBSConfig | None = None,
     client: AsyncERBSClient | None = None,
     renderer: CardRenderer | None = None,
-    count: int = 5,
+    count: int | None = None,
     page: int = 1,
     season: str | None = None,
     weapon: str | None = None,
@@ -281,6 +285,8 @@ async def query(
         raise InvalidQuery("output is only supported when format='path'")
 
     normalized_operation = _normalize_operation(operation)
+    if count is None:
+        count = 20 if normalized_operation == "summary" else 5
     mode, tier, server = normalize_mode(mode), normalize_tier(tier), normalize_server(server)
     active_config = config or (client.config if client is not None else ERBSConfig())
     cache_ttl = active_config.query_cache_ttl(normalized_operation)
@@ -365,6 +371,11 @@ async def recent(nickname: str, **options: object) -> QueryOutput:
 async def radar(nickname: str, **options: object) -> QueryOutput:
     options.setdefault("count", 20)
     return await query("radar", nickname, **options)  # type: ignore[arg-type]
+
+
+async def player_summary(nickname: str, **options: object) -> QueryOutput:
+    options.setdefault("count", 20)
+    return await query("summary", nickname, **options)  # type: ignore[arg-type]
 
 
 async def characters(nickname: str, **options: object) -> QueryOutput:
@@ -467,6 +478,7 @@ __all__ = [
     "matches",
     "multi",
     "player_overview",
+    "player_summary",
     "query",
     "radar",
     "rank",

@@ -19,6 +19,7 @@ from erbs_plugin import PlayerNotFound, RenderFailed, UpstreamUnavailable
         ["matches", "player", "--count", "10"],
         ["recent", "player"],
         ["radar", "player", "--count", "30"],
+        ["summary", "player", "--count", "30", "--art", "illustration.png"],
         ["debug", "radar", "player", "--count", "30"],
         ["characters", "player"],
         ["teammates", "player"],
@@ -112,6 +113,28 @@ def test_cli_path_output(monkeypatch, tmp_path: Path, capsys) -> None:
 
     assert asyncio.run(cli_module.run(args)) == 0
     assert capsys.readouterr().out == f"{destination}\n"
+
+
+def test_summary_cli_passes_art_and_display_title_only_as_render_config(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    async def fake_query(*args: object, **kwargs: object) -> str:
+        seen.update(kwargs)
+        assert args == ("summary", "player")
+        return "{}"
+
+    monkeypatch.setattr(cli_module, "query", fake_query)
+    args = cli_module.parser().parse_args(
+        ["summary", "player", "--season", "41", "--art", "illustration.png",
+         "--card-title", "自定义称号"]
+    )
+
+    assert asyncio.run(cli_module.run(args)) == 0
+    assert seen["count"] == 20
+    assert seen["season"] == "41"
+    config = seen["config"]
+    assert config.summary_art_path == Path("illustration.png")
+    assert config.summary_title == "自定义称号"
 
 
 def test_cli_rejects_invalid_output_combination(capsys) -> None:

@@ -370,6 +370,10 @@ class SkiaCardRenderer:
     def _render(self, payload: CardPayload) -> bytes:
         self._initialize()
         from .dak import render_character, render_player
+        from .summary import render_summary
+
+        if payload.kind == "summary":
+            return render_summary(self, payload)
 
         if payload.kind == "player" and payload.sections and payload.sections[0].get("profile"):
             return render_player(self, payload)

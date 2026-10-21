@@ -37,6 +37,13 @@ def _items_section(title: str, items: list[Mapping[str, Any]]) -> Mapping[str, A
     return {"title": title, "type": "items", "items": items}
 
 
+def _optional_integer(value: object) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class ERBSService(DakQueryMixin):
     def __init__(self, client: AsyncERBSClient) -> None:
         self.client = client
@@ -210,6 +217,137 @@ class ERBSService(DakQueryMixin):
             subtitle="排位评分",
             sections=(build_radar_section(profile),),
             footer=footer,
+        )
+
+    async def player_summary(
+        self, nickname: str, *, count: int = 20, season: str | None = None
+    ) -> CardPayload:
+        """Build an illustrated recent-match summary using local scores only."""
+        if not 1 <= count <= 60:
+            raise InvalidQuery("总结图样本数量必须在 1 到 60 之间")
+        if not nickname.strip():
+            raise InvalidQuery("玩家昵称不能为空")
+
+        seasons_data, metadata = await asyncio.gather(
+            self.client.metadata("seasons"), self.client.metadata("characters")
+        )
+        seasons = [
+            row for row in seasons_data.get("seasons") or () if isinstance(row, Mapping)
+        ]
+        selected_season = None
+        if season is not None:
+            selected_season = next(
+                (
+                    row for row in seasons
+                    if season.strip().casefold() in {
+                        str(row.get("key")).casefold(), str(row.get("id")),
+                    }
+                ),
+                None,
+            )
+            if selected_season is None or not selected_season.get("key"):
+                raise InvalidQuery(f"未找到赛季：{season}")
+        profile = await self.profile(
+            nickname, season=str(selected_season["key"]) if selected_season else None
+        )
+        ranked_seasons = [
+            row for row in profile.raw.get("playerSeasons") or ()
+            if isinstance(row, Mapping)
+            and str(row.get("matchingModeId", row.get("matchingMode", 3))) == "3"
+            and str(row.get("teamModeId", row.get("matchingTeamMode", 3))) == "3"
+        ]
+        if selected_season is None:
+            current = next(iter(ranked_seasons), {})
+            season_id = _optional_integer(current.get("seasonId"))
+            selected_season = next(
+                (row for row in seasons if _optional_integer(row.get("id")) == season_id),
+                None,
+            ) if season_id is not None else None
+        else:
+            season_id = _optional_integer(selected_season.get("id"))
+            current = next(
+                (
+                    row for row in ranked_seasons
+                    if _optional_integer(row.get("seasonId")) == season_id
+                ),
+                {},
+            )
+        if selected_season is None or not selected_season.get("key") or season_id is None:
+            raise UpstreamUnavailable("DAK.GG 缺少玩家游玩赛季的映射")
+        rp = _optional_integer(current.get("mmr"))
+        profile = replace(
+            profile, season_id=season_id, mmr=rp if rp is not None else 0,
+            tier_id=_optional_integer(current.get("tierId")),
+            tier_grade_id=_optional_integer(current.get("tierGradeId")),
+            tier_mmr=_optional_integer(current.get("tierMmr")),
+        )
+        sample = await RadarDataSource(self.client).fetch(
+            profile.nickname, count=count, season=str(selected_season["key"]),
+            season_id=season_id,
+        )
+        if not sample.matches:
+            raise InvalidQuery("没有可用于总结图的排位三排记录")
+        scored = RadarScorer().score(sample)
+        radar = build_radar_section(scored)
+        rank = self._rank_section(profile)
+        character_counts = Counter(
+            character_id for item in sample.matches
+            if (character_id := _optional_integer(item.get("characterNum")))
+        )
+        character_id = character_counts.most_common(1)[0][0] if character_counts else None
+        character = next(
+            (
+                item for item in metadata.get("characters") or ()
+                if character_id is not None and isinstance(item, Mapping)
+                and _optional_integer(item.get("id")) == character_id
+            ),
+            {},
+        )
+        skin_code = next(
+            (
+                _optional_integer(item.get("skinCode")) for item in sample.matches
+                if _optional_integer(item.get("characterNum")) == character_id
+                and item.get("skinCode")
+            ),
+            None,
+        )
+        skin = next(
+            (
+                item for item in character.get("skins") or ()
+                if skin_code is not None and isinstance(item, Mapping)
+                and _optional_integer(item.get("id")) == skin_code
+            ),
+            {},
+        )
+        section = {
+            "type": "player-summary",
+            "axes": radar["axes"],
+            "sampleSize": scored.sample_size,
+            "requestedCount": count,
+            "source": "local",
+            "sourceLabel": "本地计算",
+            "formulaVersion": scored.calibration_version,
+            "scopeLabel": f"最近 {scored.sample_size} 场排位三排",
+            "seasonId": profile.season_id,
+            "rp": rp,
+            "tierName": rank["tierName"],
+            "tierImageUrl": rank.get("imageUrl"),
+            "characterId": character_id,
+            "characterName": character.get("name")
+            or (f"实验体 {character_id}" if character_id is not None else None),
+            "characterImageUrl": skin.get("fullImageUrl") or skin.get("imageUrl")
+            or character.get("imageUrl") or character.get("communityImageUrl"),
+            "displayTitle": "六维实战档案",
+        }
+        return CardPayload(
+            kind="summary",
+            title=profile.nickname,
+            sections=(section,),
+            footer={
+                **self._footer(profile),
+                "cached": profile.meta.cached or scored.cached,
+                "scoringSource": "local",
+            },
         )
 
     async def _radar_profile(self, sample: RadarSample, *, count: int) -> RadarProfile:

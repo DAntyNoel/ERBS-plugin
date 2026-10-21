@@ -11,6 +11,11 @@
     source paths are in `src/erbs_plugin/scoring/data/provenance.json`.
     The upstream copyright and full permission notice are preserved in
     `src/erbs_plugin/scoring/data/LICENSE.txt` and included in built packages.
+  - The local summary card references the public play-card layout at
+    https://ercraft.net/player/dantynoel (inspected 2026-10-21). Drawing code is implemented
+    in Python/Skia. Website character illustrations and fonts are not bundled; an explicit
+    local 1024×1536 background can be supplied by the caller. The local card displays raw
+    historical six-axis scores rather than ERCraft's current percentile grades or titles.
 
 - IHAHBOT, Apache License 2.0, https://github.com/team-lument/IHAHBOT
   - Referenced for Eternal Return asset taxonomy and image-first output architecture.
@@ -29,5 +34,5 @@
   - The bundled two-line Chinese/English wordmark is independently generated for this project; it
     is not an official Eternal Return logo and does not indicate endorsement by Nimble Neuron.
 
-The ERBS-plugin templates and visual design are original. waves-plugin templates are not copied,
+The ERBS-plugin templates are independently implemented. waves-plugin templates are not copied,
 modified, or redistributed. This project is not affiliated with or endorsed by Nimble Neuron.

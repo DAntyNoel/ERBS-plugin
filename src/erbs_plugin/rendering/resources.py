@@ -16,7 +16,10 @@ from ..assets import AssetManager
 from ..config import ERBSConfig
 
 _LOCKS: WeakKeyDictionary = WeakKeyDictionary()
-_IMAGE_KEYS = {"imageUrl", "iconUrl", "weaponImageUrl", "bgUrl", "bannerUrl"}
+_IMAGE_KEYS = {
+    "imageUrl", "iconUrl", "weaponImageUrl", "bgUrl", "bannerUrl",
+    "tierImageUrl", "characterImageUrl",
+}
 _log = logging.getLogger(__name__)
 
 

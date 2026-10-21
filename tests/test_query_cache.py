@@ -21,6 +21,7 @@ EXPECTED_OPERATIONS = {
     "matches",
     "recent",
     "radar",
+    "summary",
     "characters",
     "skins",
     "teammates",
@@ -55,6 +56,7 @@ def test_default_ttls_cover_every_query_operation() -> None:
     assert set(config.query_cache_seconds) == EXPECTED_OPERATIONS
     assert config.query_cache_seconds["leaderboard"] < config.query_cache_seconds["overview"]
     assert config.query_cache_seconds["overview"] < config.query_cache_seconds["item"]
+    assert config.query_cache_seconds["summary"] == 180
 
 
 @pytest.mark.asyncio
@@ -91,6 +93,18 @@ async def test_scoring_version_prevents_reusing_old_style_payloads(tmp_path) -> 
     del old_spec["scoringVersion"]
     await database.set(old_spec, CardPayload(kind="radar", title="old style"), ttl=300)
     assert await database.get(_spec("radar")) is None
+
+
+@pytest.mark.asyncio
+async def test_summary_cache_is_distinct_from_radar_and_requested_sample_count(tmp_path) -> None:
+    database = QueryCacheDatabase(tmp_path / "queries.sqlite3")
+    summary_spec = {**_spec("summary"), "count": 20}
+    await database.set(summary_spec, CardPayload(kind="summary", title="local summary"), ttl=180)
+
+    assert await database.get({**summary_spec, "operation": "radar"}) is None
+    assert await database.get({**summary_spec, "count": 40}) is None
+    cached = await database.get(summary_spec)
+    assert cached is not None and cached.kind == "summary"
 
 
 @pytest.mark.asyncio

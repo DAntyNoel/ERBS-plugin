@@ -15,6 +15,7 @@ def _default_query_cache_seconds() -> dict[str, int]:
         "matches": 120,
         "recent": 120,
         "radar": 180,
+        "summary": 180,
         "characters": 900,
         "skins": 1800,
         "teammates": 300,
@@ -58,6 +59,8 @@ class ERBSConfig:
     private_database_path: Path | None = None
     asset_directory: Path | None = None
     render_font_path: Path | None = None
+    summary_art_path: Path | None = None
+    summary_title: str | None = None
     download_render_assets: bool = True
     # Explicit legacy HTML renderer settings; unused by the default Skia renderer.
     browser_path: Path | None = None
@@ -88,6 +91,10 @@ class ERBSConfig:
             self.browser_path = Path(self.browser_path)
         if self.render_font_path is not None:
             self.render_font_path = Path(self.render_font_path).expanduser()
+        if self.summary_art_path is not None:
+            self.summary_art_path = Path(self.summary_art_path).expanduser()
+        if self.summary_title is not None:
+            self.summary_title = self.summary_title.strip() or None
         self.request_concurrency = max(1, self.request_concurrency)
         self.retry_count = max(0, self.retry_count)
         self.retry_backoff_seconds = max(0.0, self.retry_backoff_seconds)

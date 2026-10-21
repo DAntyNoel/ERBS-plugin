@@ -171,6 +171,11 @@ def parser() -> argparse.ArgumentParser:
     _add_player_command(subparsers, "recent", "recent performance summary")
     radar = _add_player_command(subparsers, "radar", "six-axis player performance radar")
     radar.add_argument("--count", type=int, default=20)
+    summary = _add_player_command(subparsers, "summary", "illustrated local performance summary")
+    summary.add_argument("--count", type=int, default=20)
+    summary.add_argument("--season")
+    summary.add_argument("--art", type=Path, help="local 1024x1536 raster background image")
+    summary.add_argument("--card-title", help="display title; does not affect scores")
     _add_player_command(subparsers, "characters", "player character statistics")
     _add_player_command(subparsers, "teammates", "recent teammates")
     _add_player_command(subparsers, "best-match", "best recent match")
@@ -213,6 +218,10 @@ def _config(args: argparse.Namespace) -> ERBSConfig:
     }
     if args.font_path is not None:
         values["render_font_path"] = args.font_path
+    if getattr(args, "art", None) is not None:
+        values["summary_art_path"] = args.art
+    if getattr(args, "card_title", None) is not None:
+        values["summary_title"] = args.card_title
     values["web_base_url"] = args.web_base_url
     if getattr(args, "asset_directory", None) is not None:
         values["asset_directory"] = args.asset_directory

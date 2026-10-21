@@ -49,6 +49,37 @@ erbs overview eternalreturn --format bytes > player.png
 The same CLI is available through `python -m erbs_plugin`. The existing `erbs-assets` command is
 retained for compatibility.
 
+## Illustrated player summary
+
+The portrait summary follows ERCraft's illustrated card layout and uses the existing local
+six-axis calculation. Generate a card from the most recent 20 ranked squad games:
+
+```bash
+erbs summary dantynoel --format path --output ./summary.png
+erbs summary dantynoel --count 40 --art ./illustration.png \
+  --card-title "六维实战档案" --format path --output ./summary-custom.png
+```
+
+`--count` accepts 1–60 games. `--season` selects a DAK season; otherwise the sample uses the
+profile's current season. The card labels the actual recent-match sample and displays each
+axis's score and eligible game count. Missing scores remain unavailable. It does not assign
+website population percentiles or letter grades, and never uses the optional ERCraft API fallback.
+
+`--art` requires a decodable local raster background image with exactly 1024×1536 pixels.
+Without it, the renderer uses the most-played character from the sampled games and cached DAK
+artwork. `--card-title` changes only the displayed title. In Python, use
+`ERBSConfig(summary_art_path=Path("illustration.png"), summary_title="六维实战档案")`.
+Both settings default to `None` and do not change the scoring data or query-cache identity.
+
+```python
+from erbs_plugin import player_summary, query
+
+png_path = await player_summary("dantynoel", format="path", output="summary.png")
+json_text = await query("summary", "dantynoel", count=20)
+```
+
+Summary results have an independent 180-second cache and do not reuse radar payloads.
+
 ## Python API
 
 The recommended API consists of async query functions:

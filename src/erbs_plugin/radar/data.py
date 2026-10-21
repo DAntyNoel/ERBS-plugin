@@ -86,7 +86,10 @@ class RadarDataSource:
     def __init__(self, client: AsyncERBSClient) -> None:
         self.client = client
 
-    async def fetch(self, nickname: str, *, count: int = 20) -> RadarSample:
+    async def fetch(
+        self, nickname: str, *, count: int = 20, season: str | None = None,
+        season_id: int | None = None,
+    ) -> RadarSample:
         if not 1 <= count <= _MAX_MATCHES:
             raise InvalidQuery(f"雷达图样本数量必须在 1 到 {_MAX_MATCHES} 之间")
 
@@ -95,10 +98,14 @@ class RadarDataSource:
             raise InvalidQuery("玩家昵称不能为空")
 
         page_count = ceil(count / _PAGE_SIZE)
+        selected_season_id = season_id
+        if selected_season_id is None and season is not None and season.isdecimal():
+            selected_season_id = int(season)
         payloads = await asyncio.gather(
             *(
                 self.client.player_matches(
                     clean_nickname,
+                    **({"season": season} if season is not None else {}),
                     matching_mode="RANK",
                     team_mode="SQUAD",
                     page=page,
@@ -118,6 +125,10 @@ class RadarDataSource:
                 matching_mode = _integer(item.get("matchingMode"), 3)
                 team_mode = _integer(item.get("matchingTeamMode", item.get("teamMode")), 3)
                 if matching_mode != 3 or team_mode != 3:
+                    continue
+                if selected_season_id is not None and _integer(
+                    item.get("seasonId"), -1
+                ) != selected_season_id:
                     continue
                 game_id = _integer(item.get("gameId"), 0)
                 if game_id and game_id in seen_game_ids:
