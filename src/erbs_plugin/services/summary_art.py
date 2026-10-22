@@ -33,8 +33,10 @@ def build_summary_art_candidates(
     matches: Sequence[Mapping[str, Any]],
     season_id: int,
 ) -> tuple[list[dict[str, Any]], str]:
-    """Prefer ranked usage, then season-filtered normal samples; never infer inventory.
+    """Weight characters by usage and prefer their verified ERCraft skin artwork.
 
+    ERCraft skins are eligible regardless of usage; only the fallback uses public
+    skin history. Neither pool establishes which skins the player owns.
     The caller must already filter NORMAL samples to the requested season: their
     upstream seasonId can be zero, so it cannot establish that boundary itself.
     """
@@ -102,12 +104,17 @@ def build_summary_art_candidates(
             for row in _rows(character.get("skins"))
             if (skin_id := _positive_integer(row.get("id"))) is not None
         }
-        skin_ids = used_skins.get(character_id, set()) & skin_metadata.keys()
-        skin_ids |= {
-            skin_id for row in ranked_matches
-            if _positive_integer(row.get("characterNum")) == character_id
-            and (skin_id := _positive_integer(row.get("skinCode"))) in skin_metadata
+        skin_ids = {
+            skin_id for skin_id in skin_metadata
+            if summary_card_url(character_id, skin_id) is not None
         }
+        if not skin_ids:
+            skin_ids = used_skins.get(character_id, set()) & skin_metadata.keys()
+            skin_ids |= {
+                skin_id for row in ranked_matches
+                if _positive_integer(row.get("characterNum")) == character_id
+                and (skin_id := _positive_integer(row.get("skinCode"))) in skin_metadata
+            }
         if not skin_ids:
             skin_ids = {
                 skin_id for row in normal_matches

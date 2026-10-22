@@ -88,13 +88,15 @@ upload; network/CDN times vary. Reproduce with `python scripts/benchmark_summary
 
 `--art` requires a decodable local raster background image with exactly 1024×1536 pixels.
 Without it, each render draws a character with probability proportional to its play count in the
-selected season's ranked squad overview, falling back to recent sampled games when that overview
-is unavailable. It then draws from the character's publicly recorded used skins: Epic (heroic,
-purple, DAK `grade=4`) skins have weight 10 and other skins have weight 1. Skin usage counts do
-not multiply those weights. Missing skin evidence falls back to the base skin. These records
-are not a complete owned-skin inventory. Exact base and first-pick skin matches use verified
-ERCraft illustrated cards; other skins, or unavailable card assets, use the selected skin's DAK
-artwork. Selected artwork is cached locally; each generation draws again even when query data
+selected season's ranked squad overview, independently of the 500-game sample cap. With no ranked
+games it uses same-season normal game usage; unavailable season usage falls back to sampled games.
+For the selected character, artwork is drawn first from its existing ERCraft illustrated cards,
+regardless of whether the player has used the corresponding skin. Only characters with no ERCraft
+cards fall back to their publicly recorded used skins, then to the base skin when no skin evidence
+is available. Card and skin candidates for Epic (heroic, purple, DAK `grade=4`) skins have weight 10;
+other candidates have weight 1. Skin usage counts do not multiply those weights. Used/base skin
+fallbacks use DAK artwork, and public used-skin records are not a complete owned-skin inventory.
+Selected artwork is cached locally; each generation draws again even when query data
 comes from cache. `--card-title` changes only the displayed title.
 In Python, use
 `ERBSConfig(summary_art_path=Path("illustration.png"), summary_title="六维实战档案")`.

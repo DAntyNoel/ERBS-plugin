@@ -42,7 +42,14 @@ def overview(*characters: dict, **changes: object) -> dict:
     }
 
 
-def test_candidates_use_only_target_ranked_usage_and_deduplicate_used_skins() -> None:
+@pytest.fixture
+def no_ercraft_cards(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("erbs_plugin.services.summary_art.summary_card_url", lambda *_: None)
+
+
+def test_candidates_use_only_target_ranked_usage_and_deduplicate_used_skins(
+    no_ercraft_cards: None,
+) -> None:
     profile = {"playerSeasonOverviews": [
         overview({"key": 31, "play": 9999}, seasonId=39),
         overview({"key": 31, "play": 9999}, matchingModeId=2),
@@ -72,15 +79,15 @@ def test_candidates_use_only_target_ranked_usage_and_deduplicate_used_skins() ->
     assert skins[0]["characterImageUrl"] == "epic-full.png"
     assert skins[1]["characterImageUrl"] == "rare.png"
     assert skins[0]["summaryArtUrl"] is None
-    assert skins[1]["summaryArtUrl"] == (
-        "https://ercraft.net/assets/play-cards/67/first-pick/10.webp"
-    )
+    assert skins[1]["summaryArtUrl"] is None
     assert candidates[0]["skins"][0]["skinId"] == 1031001
     assert profile == original_profile
     assert chars == original_chars
 
 
-def test_missing_skin_usage_uses_only_that_characters_recent_skin_evidence() -> None:
+def test_missing_skin_usage_uses_only_that_characters_recent_skin_evidence(
+    no_ercraft_cards: None,
+) -> None:
     profile = {"playerSeasonOverviews": [overview({"key": 67, "play": 20})]}
     candidates, source = build_summary_art_candidates(profile, metadata(), [
         match(67, 1067003), match(67, 1067003),
@@ -94,7 +101,9 @@ def test_missing_skin_usage_uses_only_that_characters_recent_skin_evidence() -> 
     assert candidates[0]["skins"][0]["weight"] == 1
 
 
-def test_missing_skin_evidence_falls_back_to_base_without_adding_other_skins() -> None:
+def test_missing_skin_evidence_falls_back_to_base_without_adding_other_skins(
+    no_ercraft_cards: None,
+) -> None:
     profile = {"playerSeasonOverviews": [overview(
         {"key": 67, "play": 20, "skinStats": [{"key": 99999, "play": 20}]},
         {"key": 31, "play": 3},
@@ -106,11 +115,13 @@ def test_missing_skin_evidence_falls_back_to_base_without_adding_other_skins() -
     assert candidates[0]["skins"] == [{
         "skinId": 1031000, "skinName": "默认", "skinGrade": 1,
         "weight": 1, "characterImageUrl": "community.png",
-        "summaryArtUrl": "https://ercraft.net/assets/play-cards/31/10.webp",
+        "summaryArtUrl": None,
     }]
 
 
-def test_recent_usage_fallback_does_not_use_other_seasons_modes_or_profile_characters() -> None:
+def test_recent_usage_fallback_does_not_use_other_seasons_modes_or_profile_characters(
+    no_ercraft_cards: None,
+) -> None:
     profile = {
         "characters": [{"key": 31, "play": 9999}],
         "playerCharacterStats": [{"key": 31, "play": 9999}],
@@ -132,7 +143,9 @@ def test_recent_usage_fallback_does_not_use_other_seasons_modes_or_profile_chara
     assert [s["skinId"] for s in candidates[1]["skins"]] == [1067002, 1067003]
 
 
-def test_base_skin_code_fallback_and_character_image_preserve_partial_metadata() -> None:
+def test_base_skin_code_fallback_and_character_image_preserve_partial_metadata(
+    no_ercraft_cards: None,
+) -> None:
     chars = {"characters": [
         {"id": "67", "name": "艾比盖尔", "imageUrl": "character.png", "skins": [
             {"id": 1067000, "name": "默认"},
@@ -146,7 +159,7 @@ def test_base_skin_code_fallback_and_character_image_preserve_partial_metadata()
     assert candidates[0]["skins"] == [{
         "skinId": 1067000, "skinName": "默认", "skinGrade": None,
         "weight": 1, "characterImageUrl": "character.png",
-        "summaryArtUrl": "https://ercraft.net/assets/play-cards/67/10.webp",
+        "summaryArtUrl": None,
     }]
 
 
@@ -174,7 +187,9 @@ def test_malformed_or_nonpositive_usage_does_not_make_weighted_candidates() -> N
     assert source == "本赛季匹配使用记录"
 
 
-def test_ranked_sample_usage_takes_priority_over_many_normal_samples() -> None:
+def test_ranked_sample_usage_takes_priority_over_many_normal_samples(
+    no_ercraft_cards: None,
+) -> None:
     candidates, source = build_summary_art_candidates({}, metadata(), [
         match(67, 1067002), match(31, 1031001),
         *[match(31, 1031000, seasonId=0, matchingMode=2) for _ in range(20)],
@@ -185,7 +200,7 @@ def test_ranked_sample_usage_takes_priority_over_many_normal_samples() -> None:
     assert [s["skinId"] for s in candidates[0]["skins"]] == [1031001]
 
 
-def test_normal_samples_supply_usage_when_no_ranked_usage_exists() -> None:
+def test_normal_samples_supply_usage_when_no_ranked_usage_exists(no_ercraft_cards: None) -> None:
     profile = {"playerSeasonOverviews": [
         overview({"key": 31, "play": 9999}, seasonId=0, matchingModeId=2),
     ]}
@@ -203,7 +218,9 @@ def test_normal_samples_supply_usage_when_no_ranked_usage_exists() -> None:
     assert [s["skinId"] for s in candidates[1]["skins"]] == [1067002, 1067003]
 
 
-def test_ranked_skin_stats_and_samples_are_combined_before_normal_skin_fallback() -> None:
+def test_ranked_skin_stats_and_samples_are_combined_before_normal_skin_fallback(
+    no_ercraft_cards: None,
+) -> None:
     profile = {"playerSeasonOverviews": [overview(
         {"key": 67, "play": 213, "skinStats": [{"key": 1067002, "play": 172}]},
         {"key": 31, "play": 2},
@@ -218,6 +235,54 @@ def test_ranked_skin_stats_and_samples_are_combined_before_normal_skin_fallback(
     assert [(c["characterId"], c["weight"]) for c in candidates] == [(31, 2), (67, 213)]
     assert [s["skinId"] for s in candidates[1]["skins"]] == [1067002, 1067003]
     assert [s["skinId"] for s in candidates[0]["skins"]] == [1031001]
+
+
+def test_ercraft_skins_replace_used_unmapped_skins_and_preserve_usage_weights() -> None:
+    chars = metadata()
+    chars["characters"][0]["skins"][-1].update(name="热带次元", grade=4)
+    profile = {"playerSeasonOverviews": [overview(
+        {"key": 67, "play": 213, "skinStats": [{"key": 1067002, "play": 213}]},
+        {"key": 31, "play": 2, "skinStats": [{"key": 1031001, "play": 2}]},
+    )]}
+    original_chars, original_profile = deepcopy(chars), deepcopy(profile)
+
+    candidates, source = build_summary_art_candidates(
+        profile, chars, [match(67, 1067002), match(31, 1031001)], 41,
+    )
+
+    assert source == "赛季排位使用记录"
+    assert [(c["characterId"], c["weight"]) for c in candidates] == [(31, 2), (67, 213)]
+    assert [s["skinId"] for s in candidates[0]["skins"]] == [1031000]
+    assert [(s["skinId"], s["weight"]) for s in candidates[1]["skins"]] == [
+        (1067000, 1), (1067003, 10),
+    ]
+    assert all(s["summaryArtUrl"] for c in candidates for s in c["skins"])
+    assert chars == original_chars
+    assert profile == original_profile
+
+
+def test_new_character_without_ercraft_assets_keeps_usage_and_used_skin_fallback() -> None:
+    chars = metadata()
+    chars["characters"].append({
+        "id": 92, "name": "新实验体", "imageUrl": "new-character.png", "skins": [
+            {"id": 1092000, "name": "默认", "grade": 1},
+            {"id": 1092001, "name": "已使用英雄", "grade": 4, "imageUrl": "new-epic.png"},
+            {"id": 1092002, "name": "未使用英雄", "grade": 4, "imageUrl": "unused.png"},
+        ],
+    })
+    profile = {"playerSeasonOverviews": [overview(
+        {"key": 67, "play": 9},
+        {"key": 92, "play": 3, "skinStats": [{"key": 1092001, "play": 3}]},
+    )]}
+
+    candidates, source = build_summary_art_candidates(profile, chars, [], 41)
+
+    assert source == "赛季排位使用记录"
+    assert [(c["characterId"], c["weight"]) for c in candidates] == [(67, 9), (92, 3)]
+    assert candidates[1]["skins"] == [{
+        "skinId": 1092001, "skinName": "已使用英雄", "skinGrade": 4, "weight": 10,
+        "summaryArtUrl": None, "characterImageUrl": "new-epic.png",
+    }]
 
 
 @pytest.mark.parametrize(("character_id", "skin_id", "expected"), [

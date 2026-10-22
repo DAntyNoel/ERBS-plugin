@@ -144,13 +144,19 @@ def test_summary_grade_version_does_not_change_other_query_cache_specs(operation
 
 
 @pytest.mark.asyncio
-async def test_summary_art_version_rejects_previous_fixed_art_cache(tmp_path) -> None:
+@pytest.mark.parametrize("old_version", [None, "weighted-used-skins.v1"])
+async def test_summary_art_version_rejects_fixed_or_used_skin_only_cache(
+    tmp_path, old_version: str | None,
+) -> None:
     database = QueryCacheDatabase(tmp_path / "queries.sqlite3")
     current_spec = _spec("summary")
-    assert current_spec["summaryArtVersion"] == SUMMARY_ART_VERSION
+    assert current_spec["summaryArtVersion"] == SUMMARY_ART_VERSION == "weighted-ercraft-first.v2"
     old_spec = {key: value for key, value in current_spec.items() if key != "summaryArtVersion"}
-    await database.set(old_spec, CardPayload(kind="summary", title="fixed art"), ttl=180)
+    if old_version is not None:
+        old_spec["summaryArtVersion"] = old_version
+    await database.set(old_spec, CardPayload(kind="summary", title="old art pool"), ttl=180)
 
+    assert await database.get(old_spec) is not None
     assert await database.get(current_spec) is None
 
 

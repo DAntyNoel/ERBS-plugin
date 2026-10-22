@@ -10,7 +10,7 @@ from typing import Any
 
 from .models import CardPayload
 
-SUMMARY_ART_VERSION = "weighted-used-skins.v1"
+SUMMARY_ART_VERSION = "weighted-ercraft-first.v2"
 
 
 def _weighted(items: object) -> list[Mapping[str, Any]]:
