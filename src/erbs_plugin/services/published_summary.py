@@ -8,6 +8,7 @@ from typing import Any
 
 from ..assets.summary_cards import FIRST_PICK_SKIN_SUFFIXES, VERIFIED_CHARACTER_IDS
 from ..client import AsyncERBSClient
+from ..client.ercraft_refresh import refresh_stale_player_summary
 from ..exceptions import ERBSError, InvalidQuery, UpstreamUnavailable
 from ..models import CardPayload
 from ..published_summary import PUBLISHED_SUMMARY_SOURCE, SummaryProgressCallback
@@ -48,6 +49,9 @@ async def published_player_summary(
     if not nickname.strip():
         raise InvalidQuery("玩家昵称不能为空")
     summary = await client.ercraft_player_summary(nickname.strip(), progress=progress)
+    summary = await refresh_stale_player_summary(
+        client, nickname.strip(), summary, progress=progress,
+    )
     identity = summary.get("data")
     if not isinstance(identity, Mapping):
         raise UpstreamUnavailable("ERCraft 暂无玩家资料，请先在网站查询该玩家。")
@@ -95,7 +99,10 @@ async def published_player_summary(
         "sourceLabel": "ERCraft", "axes": axes,
         "styleId": style_id, "styleRuleVersion": SUMMARY_STYLE_VERSION,
         "displayTitle": SUMMARY_STYLE_TITLES.get(style_id),
-        "sampleSize": sample_size, "scopeLabel": f"S{season} ERCraft 全部",
+        "sampleSize": sample_size, "scopeLabel": (
+            f"S{season} ERCraft 样本 {sample_size} 场" if sample_size is not None
+            else f"S{season} ERCraft"
+        ),
         "seasonId": api_season, "displaySeasonId": season, "seasonName": f"S{season}",
         "rp": identity.get("rp"), "tierName": identity.get("tier"),
         "formulaVersion": report.get("axisFormulaVersion"), "reportVersion": report.get("version"),

@@ -197,6 +197,8 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
     # DAK season IDs/keys are internal sequences; only the display name supplies S12, etc.
     season = re.search(r"\bS\d+\b", str(section.get("seasonName") or ""), re.IGNORECASE)
     footer = f"{season[0].upper()} ERCraft 全部" if season else "ERCraft 全部"
+    if published:
+        footer = str(section.get("scopeLabel") or footer)
     center(footer, 512, 1498, 16, width=860)
     encoded = surface.makeImageSnapshot().encodeToData(sk.kPNG, 100)
     if encoded is None:

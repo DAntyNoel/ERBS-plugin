@@ -61,6 +61,10 @@ polled without a total deadline; explicit API/job failures stop the request. Pen
 are never cached. Pass an async `progress` callback to receive website lookup stages and queue
 details (position, players ahead, and estimated wait). Website report timestamps and versions
 remain in the payload.
+If the rank observation is older than the player cache TTL (five minutes by default),
+the query runs ERCraft's ranked refresh job first, then discards the player's local
+profile/report caches. Failed refreshes do not display the old RP. The existing card footer
+shows the report's actual sample count; stored records may still be fewer than season games.
 DAK character metadata is optional and used only for artwork names and rarity.
 The ribbon title follows the website's `play-card-percentile.v4` selector, using only the
 returned percentiles and preserving its rule priority and ties. The 13 Chinese titles are
