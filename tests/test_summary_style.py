@@ -83,8 +83,7 @@ def test_axis_order_and_raw_scores_do_not_change_classification():
 
 
 @pytest.mark.parametrize("invalid", [
-    "duplicate", "missing", "unknown", "nan", "boolean", "no-grade", "small-sample",
-    "status", "wrong-grade", "only-local-scores",
+    "duplicate", "missing", "unknown", "nan", "boolean", "only-local-scores",
 ])
 def test_invalid_or_local_axes_never_receive_an_evaluation_title(invalid):
     axes = api_axes((50, 50, 50, 50, 50, 50))
@@ -98,15 +97,14 @@ def test_invalid_or_local_axes_never_receive_an_evaluation_title(invalid):
         axes[0]["percentile"] = float("nan")
     elif invalid == "boolean":
         axes[0]["percentile"] = True
-    elif invalid == "no-grade":
-        axes[0].pop("grade")
-    elif invalid == "small-sample":
-        axes[0]["eligibleGames"] = 9
-    elif invalid == "status":
-        axes[0]["status"] = "unavailable"
-    elif invalid == "wrong-grade":
-        axes[0]["grade"] = "S"
     else:
         for axis in axes:
             axis["score"] = axis.pop("percentile")
     assert select_summary_style(axes) is None
+
+
+def test_title_uses_percentiles_without_revalidating_api_grades_or_samples():
+    axes = api_axes((50, 50, 50, 50, 50, 50))
+    for axis in axes:
+        axis.update(grade=None, status="unavailable", sourceGames=6, eligibleGames=6)
+    assert select_summary_style(axes) == "07"

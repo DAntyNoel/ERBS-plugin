@@ -185,12 +185,13 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
         center(LABELS[index], x + w / 2, y + 26, 20, detail_color, width=w - 30)
         center(grade if ready else "—", x + w / 2, y + 59, 34, color, width=w - 50)
         count = _count(axis.get("sampleCount"))
+        count_label = f"{count}场" if _finite(axis.get("sampleCount")) else "—场"
         if published:
             value = axis.get("percentile")
-            percentage = f"P{math.floor(value * 10 + 0.5) / 10:g}" if ready else ""
+            percentage = f"P{math.floor(value * 10 + 0.5) / 10:g}" if _finite(value) else ""
         else:
             percentage = f"{score:.2f}".rstrip("0").rstrip(".") + "%" if ready else ""
-        center(f"{percentage} · {count}场" if ready else f"{count}场",
+        center(f"{percentage} · {count_label}" if percentage else count_label,
                x + w / 2, y + 78, 12, detail_color, width=w - 20)
 
     # DAK season IDs/keys are internal sequences; only the display name supplies S12, etc.

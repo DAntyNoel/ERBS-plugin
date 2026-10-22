@@ -13,6 +13,8 @@ import httpx
 from ..cache import AsyncTTLCache
 from ..config import ERBSConfig
 from ..exceptions import PlayerNotFound, RateLimited, UpstreamUnavailable
+from ..published_summary import SummaryProgressCallback
+from .ercraft import overall_analysis, player_summary
 from .page import extract_character_analysis
 
 
@@ -78,12 +80,16 @@ class AsyncERBSClient:
         headers: Mapping[str, str] | None = None,
         service: str = "DAK.GG",
         response_parser: Callable[[httpx.Response], Mapping[str, Any]] | None = None,
+        method: str = "GET",
+        use_cache: bool = True,
     ) -> Mapping[str, Any]:
         clean_params = {key: value for key, value in (params or {}).items() if value is not None}
         key = f"{path}?{json.dumps(clean_params, sort_keys=True, ensure_ascii=False)}"
+        if method != "GET":
+            key = f"{method} {key}"
         if player_lookup and await self._negative_cache.get(key):
             raise PlayerNotFound(path.rsplit("/", 1)[-1])
-        cached = await self._cache.get(key)
+        cached = await self._cache.get(key) if use_cache else None
         if cached is not None:
             return {**cached, "_erbs_cached": True}
 
@@ -91,14 +97,16 @@ class AsyncERBSClient:
         rate_limited = False
         async with self._semaphore:
             # Another request may have populated the cache while this request waited.
-            cached = await self._cache.get(key)
+            cached = await self._cache.get(key) if use_cache else None
             if cached is not None:
                 return {**cached, "_erbs_cached": True}
             for attempt in range(self.config.retry_count + 1):
                 rate_limited = False
                 response: httpx.Response | None = None
                 try:
-                    response = await self._client.get(path, params=clean_params, headers=headers)
+                    response = await self._client.request(
+                        method, path, params=clean_params, headers=headers,
+                    )
                 except httpx.TransportError as exc:
                     last_error = exc
                 else:
@@ -134,10 +142,11 @@ class AsyncERBSClient:
                             last_error = exc
                         else:
                             if isinstance(payload, Mapping):
-                                await self._cache.set(key, payload, ttl)
-                                await self._stale_cache.set(
-                                    key, payload, ttl + self.config.stale_cache_seconds
-                                )
+                                if use_cache:
+                                    await self._cache.set(key, payload, ttl)
+                                    await self._stale_cache.set(
+                                        key, payload, ttl + self.config.stale_cache_seconds
+                                    )
                                 return payload
                             last_error = TypeError(f"{service} returned an unexpected payload")
                 if attempt < self.config.retry_count:
@@ -145,7 +154,7 @@ class AsyncERBSClient:
                     if delay > 0:
                         await asyncio.sleep(delay)
 
-            if stale := await self._stale_result(key):
+            if use_cache and (stale := await self._stale_result(key)):
                 return stale
         if rate_limited:
             raise RateLimited(f"{service} rate limit reached") from last_error
@@ -223,37 +232,19 @@ class AsyncERBSClient:
                 raise UpstreamUnavailable("ERCraft 六维组件结构不匹配")
         return payload
 
-    async def ercraft_player_summary(self, nickname: str) -> Mapping[str, Any]:
+    async def ercraft_player_summary(
+        self, nickname: str, *, progress: SummaryProgressCallback | None = None,
+    ) -> Mapping[str, Any]:
         """Resolve the public website identity and current display season."""
-        return await self._request_json(
-            f"{self.config.ercraft_api_base_url}/api/players/{quote(nickname, safe='')}/summary",
-            params={"cacheOnly": "true"},
-            headers={"x-er-cache-only": "true", "x-er-no-upstream": "true"},
-            ttl=self.config.player_cache_seconds,
-            player_lookup=True,
-            service="ERCraft",
-        )
+        return await player_summary(self, nickname, progress=progress)
 
     async def ercraft_overall_analysis(
-        self, player_id: str, display_season: int,
+        self, player_id: str, display_season: int, *, nickname: str | None = None,
+        progress: SummaryProgressCallback | None = None,
     ) -> Mapping[str, Any]:
         """Read the website's overall report, including its published percentiles."""
-        def ready_report(response: httpx.Response) -> Mapping[str, Any]:
-            payload = response.json()
-            if not isinstance(payload, Mapping) or payload.get("requestStatus") != "ready":
-                # HTTP 200 can mean preparing. Do not cache that as a successful report.
-                raise UpstreamUnavailable("ERCraft 评价报告尚未就绪，请稍后再试。")
-            return payload
-
-        return await self._request_json(
-            f"{self.config.ercraft_api_base_url}/api/player-analysis/roles",
-            params={
-                "ownerPlayerId": player_id, "displaySeasonId": display_season,
-                "scope": "overall",
-            },
-            ttl=self.config.match_cache_seconds,
-            service="ERCraft",
-            response_parser=ready_report,
+        return await overall_analysis(
+            self, player_id, display_season, nickname=nickname, progress=progress,
         )
 
     async def player_default(self, nickname: str) -> Mapping[str, Any]:

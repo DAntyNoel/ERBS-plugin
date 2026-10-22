@@ -48,8 +48,11 @@ erbs overview playername --format bytes > player.png
 网站评价可通过 `await service.published_player_summary("玩家昵称")` 获取，再传入
 `SkiaCardRenderer.render()` 在本地生成 PNG。该独立入口读取 ERCraft 当前赛季的
 `scope=overall` 报告，直接显示接口等级（E–SSS）、百分位 P 和各轴有效场数。
-不会拉取 DAK 对局、补入普通匹配或回退到本地评分；报告准备中、样本不足、
-身份/赛季/范围不符时抛出 `UpstreamUnavailable`。角色抽图按报告角色场次加权，
+不会拉取 DAK 对局、补入普通匹配或回退到本地评分。返回的评价直接采用，不再做本地样本、
+等级、百分位或身份/赛季复核；缺失值显示“—”。身份解析和报告准备期间持续等待，
+没有总等待时限，接口或网站任务明确报错才退出。可传入异步 `progress` 回调，接收网站的
+处理阶段、排队次序、前方人数和预计等待时间。准备状态不缓存，避免卡在旧状态。
+角色抽图按报告角色场次加权，
 DAK 元数据仅用于素材名称与稀有度且允许缺失。报告时间、版本和原始轴字段保留在 payload 中，
 不将网站缓存视为刚刚重算的最新完整战绩。下文 `summary` CLI/API 仍为独立保留的本地流程。
 

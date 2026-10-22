@@ -12,6 +12,7 @@ from ..analysis import ERBSAnalysisService
 from ..client import AsyncERBSClient
 from ..exceptions import ERBSError, InvalidQuery, RateLimited, UpstreamUnavailable
 from ..models import CardPayload, MatchRecord, PlayerProfile
+from ..published_summary import SummaryProgressCallback
 from ..radar import RadarDataSource, RadarProfile, RadarSample, RadarScorer, build_radar_section
 from ..radar.scoring import published_profile
 from ..scoring import score_match
@@ -225,9 +226,11 @@ class ERBSService(DakQueryMixin):
             footer=footer,
         )
 
-    async def published_player_summary(self, nickname: str) -> CardPayload:
+    async def published_player_summary(
+        self, nickname: str, *, progress: SummaryProgressCallback | None = None,
+    ) -> CardPayload:
         """Use ERCraft's current-season overall evaluation and render it locally."""
-        return await published_player_summary(self.client, nickname)
+        return await published_player_summary(self.client, nickname, progress=progress)
 
     async def player_summary(
         self, nickname: str, *, count: int = 20, season: str | None = None

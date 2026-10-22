@@ -6,9 +6,9 @@ Only published percentiles are classified; local scores are never substituted.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 
-from .published_summary import published_summary_grade
 from .scoring.axes import AXIS_ORDER
 
 SUMMARY_STYLE_VERSION = "play-card-percentile.v4"
@@ -30,7 +30,7 @@ SUMMARY_STYLE_TITLES = {
 
 
 def select_summary_style(axes: object) -> str | None:
-    """Match the website's thresholds, precedence and ties on six valid API axes."""
+    """Match the website's title rules using the six supplied percentiles."""
     if not isinstance(axes, (list, tuple)) or len(axes) != len(AXIS_ORDER):
         return None
     percentiles = {}
@@ -40,7 +40,9 @@ def select_summary_style(axes: object) -> str | None:
         key = row.get("axis", row.get("key"))
         if (
             not isinstance(key, str) or key not in AXIS_ORDER or key in percentiles
-            or published_summary_grade(row) is None
+            or not isinstance(row.get("percentile"), (int, float))
+            or isinstance(row.get("percentile"), bool)
+            or not math.isfinite(row["percentile"])
         ):
             return None
         percentiles[key] = row["percentile"]

@@ -55,8 +55,12 @@ For website-backed evaluation, call `ERBSService.published_player_summary(nickna
 the returned payload to `SkiaCardRenderer.render()`. It reads ERCraft's current-season
 `scope=overall` report and displays the supplied grades (E through SSS), population percentiles
 (`P`), and eligible game counts. It never fetches DAK matches or falls back to local scoring.
-Preparing, insufficient, or mismatched reports raise `UpstreamUnavailable`; HTTP 200 alone
-does not imply a usable evaluation. Website report timestamps and versions remain in the payload.
+Published values are displayed as supplied, without local sample, grade, percentile, or identity
+cross-checks. Missing axis values remain blank. Identity resolution and report preparation are
+polled without a total deadline; explicit API/job failures stop the request. Pending responses
+are never cached. Pass an async `progress` callback to receive website lookup stages and queue
+details (position, players ahead, and estimated wait). Website report timestamps and versions
+remain in the payload.
 DAK character metadata is optional and used only for artwork names and rarity.
 The ribbon title follows the website's `play-card-percentile.v4` selector, using only the
 returned percentiles and preserving its rule priority and ties. The 13 Chinese titles are

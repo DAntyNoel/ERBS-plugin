@@ -10,7 +10,7 @@ from ..assets.summary_cards import FIRST_PICK_SKIN_SUFFIXES, VERIFIED_CHARACTER_
 from ..client import AsyncERBSClient
 from ..exceptions import ERBSError, InvalidQuery, UpstreamUnavailable
 from ..models import CardPayload
-from ..published_summary import PUBLISHED_SUMMARY_SOURCE, published_summary_grade
+from ..published_summary import PUBLISHED_SUMMARY_SOURCE, SummaryProgressCallback
 from ..scoring.axes import AXIS_LABELS, AXIS_ORDER
 from ..summary_art import SUMMARY_ART_VERSION
 from ..summary_style import SUMMARY_STYLE_TITLES, SUMMARY_STYLE_VERSION, select_summary_style
@@ -42,44 +42,32 @@ async def _art_metadata(client: AsyncERBSClient, usage: list[Mapping]) -> Mappin
         return {"characters": characters}
 
 
-async def published_player_summary(client: AsyncERBSClient, nickname: str) -> CardPayload:
+async def published_player_summary(
+    client: AsyncERBSClient, nickname: str, *, progress: SummaryProgressCallback | None = None,
+) -> CardPayload:
     if not nickname.strip():
         raise InvalidQuery("玩家昵称不能为空")
-    summary = await client.ercraft_player_summary(nickname.strip())
+    summary = await client.ercraft_player_summary(nickname.strip(), progress=progress)
     identity = summary.get("data")
     if not isinstance(identity, Mapping):
         raise UpstreamUnavailable("ERCraft 暂无玩家资料，请先在网站查询该玩家。")
     owner, season = identity.get("playerId"), identity.get("currentSeason")
-    if not isinstance(owner, str) or not owner.strip() or not _positive_id(season):
-        raise UpstreamUnavailable("ERCraft 缺少有效玩家身份或当前赛季。")
-    analysis = await client.ercraft_overall_analysis(owner, season)
+    analysis = await client.ercraft_overall_analysis(
+        owner, season, nickname=nickname.strip(), progress=progress,
+    )
     report, scope = analysis.get("report"), analysis.get("scope")
-    if not isinstance(report, Mapping) or not isinstance(scope, Mapping):
+    if not isinstance(report, Mapping):
         raise UpstreamUnavailable("ERCraft 评价报告结构不完整。")
+    scope = scope if isinstance(scope, Mapping) else {}
     target = report.get("target")
-    if (
-        not isinstance(target, Mapping) or target.get("ownerPlayerId") != owner
-        or scope.get("displaySeasonId") != season or scope.get("analysisScope") != "overall"
-        or report.get("comparisonTierBand") is not None
-        or not isinstance(report.get("version"), str)
-        or not isinstance(report.get("axisFormulaVersion"), str)
-    ):
-        raise UpstreamUnavailable("ERCraft 评价身份、赛季或统计范围不匹配。")
-    rows = target.get("overallAxes")
-    if (
-        not isinstance(rows, list) or len(rows) != len(AXIS_ORDER)
-        or any(not isinstance(row, Mapping) for row in rows)
-        or any(not isinstance(row.get("axis"), str) for row in rows)
-        or {row.get("axis") for row in rows} != set(AXIS_ORDER)
-    ):
-        raise UpstreamUnavailable("ERCraft 缺少完整的六维评价。")
-    if any(published_summary_grade(row) is None for row in rows):
-        raise UpstreamUnavailable("ERCraft 六维评价样本不足或等级、百分位不可用。")
-    axes_by_key = {row["axis"]: row for row in rows}
+    if not isinstance(target, Mapping):
+        raise UpstreamUnavailable("ERCraft 评价报告缺少目标数据。")
+    rows = target.get("overallAxes") or []
+    axes_by_key = {row.get("axis"): row for row in rows if isinstance(row, Mapping)}
     axes = [{
-        **axes_by_key[key], "key": key, "label": AXIS_LABELS[key],
-        "score": axes_by_key[key].get("combinedScore"),
-        "sampleCount": axes_by_key[key]["eligibleGames"],
+        **axes_by_key.get(key, {}), "key": key, "label": AXIS_LABELS[key],
+        "score": axes_by_key.get(key, {}).get("combinedScore"),
+        "sampleCount": axes_by_key.get(key, {}).get("eligibleGames"),
     } for key in AXIS_ORDER]
     style_id = select_summary_style(axes)
     character_scopes = target.get("characterScopes")
@@ -100,7 +88,8 @@ async def published_player_summary(client: AsyncERBSClient, nickname: str) -> Ca
             ],
         }],
     }, metadata, (), art_season)
-    sample_size = max(row["sourceGames"] for row in rows)
+    sample_size = max((row.get("sourceGames") for row in rows if isinstance(row, Mapping)
+                       and isinstance(row.get("sourceGames"), int)), default=None)
     section: dict[str, Any] = {
         "type": "player-summary", "source": PUBLISHED_SUMMARY_SOURCE,
         "sourceLabel": "ERCraft", "axes": axes,
@@ -109,7 +98,7 @@ async def published_player_summary(client: AsyncERBSClient, nickname: str) -> Ca
         "sampleSize": sample_size, "scopeLabel": f"S{season} ERCraft 全部",
         "seasonId": api_season, "displaySeasonId": season, "seasonName": f"S{season}",
         "rp": identity.get("rp"), "tierName": identity.get("tier"),
-        "formulaVersion": report["axisFormulaVersion"], "reportVersion": report["version"],
+        "formulaVersion": report.get("axisFormulaVersion"), "reportVersion": report.get("version"),
         "sourceMeta": {
             "scope": dict(scope), "authority": report.get("authority"),
             "sourceContract": report.get("sourceContract"), "ownerPlayerId": owner,

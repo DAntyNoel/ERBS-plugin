@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -133,9 +134,9 @@ async def test_rp_zero_and_missing_remain_distinct(tmp_path, rp):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", [
     "identity", "season", "scope", "tier", "duplicate-axis", "missing-axis",
-    "missing-percentile", "grade-mismatch", "insufficient", "unavailable", "no-identity",
+    "missing-percentile", "grade-mismatch", "insufficient", "unavailable-axis",
 ])
-async def test_invalid_reports_never_become_local_evaluations(tmp_path, change):
+async def test_published_reports_are_not_revalidated_locally(tmp_path, change):
     payload, summary = report(), identity()
     rows = payload["report"]["target"]["overallAxes"]
     if change == "identity":
@@ -156,19 +157,24 @@ async def test_invalid_reports_never_become_local_evaluations(tmp_path, change):
         rows[0]["grade"] = "S"
     elif change == "insufficient":
         rows[0]["eligibleGames"] = 9
-    elif change == "unavailable":
-        payload = {"requestStatus": "unavailable", "reason": "role-analysis-preparing"}
-    else:
-        summary = {"data": None}
+    elif change == "unavailable-axis":
+        rows[0].update(status="unavailable", grade=None, percentile=None, eligibleGames=6)
     client, requested = make_client(tmp_path, payload=payload, summary=summary)
     async with client:
-        with pytest.raises(UpstreamUnavailable, match="ERCraft"):
-            await ERBSService(client).published_player_summary("Player Name")
-    assert all(request.url.host == "api.ercraft.net" for request in requested)
+        card = await ERBSService(client).published_player_summary("Player Name")
+    assert len(card.sections[0]["axes"]) == 6
+    assert card.sections[0]["source"] == "ercraft-api"
+    for actual in card.sections[0]["axes"]:
+        original = next((row for row in reversed(rows) if row["axis"] == actual["key"]), {})
+        assert actual.get("grade") == original.get("grade")
+        assert actual.get("percentile") == original.get("percentile")
+    assert not any(request.url.path.endswith("/matches") for request in requested)
 
 
 @pytest.mark.asyncio
-async def test_preparing_http_200_is_not_cached(tmp_path):
+async def test_preparing_http_200_is_waited_and_not_cached(tmp_path, monkeypatch):
+    sleep = AsyncMock()
+    monkeypatch.setattr("erbs_plugin.client.ercraft.sleep", sleep)
     calls = 0
 
     def handler(request):
@@ -179,11 +185,11 @@ async def test_preparing_http_200_is_not_cached(tmp_path):
         ))
 
     async with AsyncERBSClient(ERBSConfig(), transport=httpx.MockTransport(handler)) as client:
-        with pytest.raises(UpstreamUnavailable, match="尚未就绪"):
-            await client.ercraft_overall_analysis("player:test", 12)
         ready = await client.ercraft_overall_analysis("player:test", 12)
         assert ready["requestStatus"] == "ready"
+        await client.ercraft_overall_analysis("player:test", 12)
     assert calls == 2
+    sleep.assert_awaited_once_with(2.0)
 
 
 @pytest.mark.asyncio
@@ -204,9 +210,82 @@ async def test_missing_player_and_encoded_nickname(tmp_path):
     (0, "E"), (10, "D"), (25, "C"), (40, "B"), (55, "A"),
     (69.99999999, "A"), (70, "S"), (85, "SS"), (95, "SSS"), (100, "SSS"),
 ])
-def test_only_matching_api_grade_is_accepted_before_display_rounding(percentile, grade):
+def test_api_grade_is_used_without_display_rounding(percentile, grade):
     axis = deepcopy(report()["report"]["target"]["overallAxes"][0])
     axis.update(percentile=percentile, grade=grade)
     assert published_summary_grade(axis) == grade
     axis["grade"] = None
     assert published_summary_grade(axis) is None
+
+
+def test_supplied_grade_is_not_checked_against_percentile_status_or_sample():
+    assert published_summary_grade({
+        "grade": "SSS", "percentile": 12, "status": "unavailable", "eligibleGames": 1,
+    }) == "SSS"
+
+
+@pytest.mark.asyncio
+async def test_identity_and_long_report_wait_use_live_queue_until_ready(monkeypatch):
+    sleep, progress = AsyncMock(), AsyncMock()
+    monkeypatch.setattr("erbs_plugin.client.ercraft.sleep", sleep)
+    counts = {"summary": 0, "report": 0, "start": 0, "status": 0}
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith("/summary"):
+            counts["summary"] += 1
+            return httpx.Response(200, json=(
+                {"data": {"status": "resolving"}} if counts["summary"] < 3 else identity()
+            ))
+        if path.endswith("/roles"):
+            counts["report"] += 1
+            return httpx.Response(200, json=(
+                {"requestStatus": "unavailable", "reason": "role-analysis-preparing"}
+                if counts["report"] <= 40 else report()
+            ))
+        start = path.endswith("/lookup-start")
+        assert request.method == ("POST" if start else "GET")
+        assert "x-er-cache-only" not in request.headers
+        assert "x-er-no-upstream" not in request.headers
+        counts["start" if start else "status"] += 1
+        return httpx.Response(200, json={"data": {
+            "status": "queued", "retryAfterMs": 4000,
+            "queue": {"state": "queued", "position": 45 - sum(counts.values()),
+                      "playersAhead": 44, "estimatedWaitMinMs": 60000,
+                      "estimatedWaitMaxMs": 120000},
+        }})
+
+    async with AsyncERBSClient(ERBSConfig(retry_count=0),
+                               transport=httpx.MockTransport(handler)) as client:
+        summary = await client.ercraft_player_summary("Player Name", progress=progress)
+        result = await client.ercraft_overall_analysis(
+            summary["data"]["playerId"], 12, nickname="Player Name", progress=progress,
+        )
+    assert result == report()
+    assert counts == {"summary": 3, "report": 41, "start": 2, "status": 40}
+    assert sleep.await_count == 42 and progress.await_count == 42
+    assert all(call.args == (4.0,) for call in sleep.await_args_list)
+    assert progress.await_args_list[0].args[0]["phase"] == "identity"
+    assert progress.await_args_list[-1].args[0]["phase"] == "report"
+    assert (progress.await_args_list[0].args[0]["queue"]["position"]
+            != progress.await_args_list[1].args[0]["queue"]["position"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["http", "report", "lookup"])
+async def test_wait_stops_on_real_upstream_errors(monkeypatch, failure):
+    monkeypatch.setattr("erbs_plugin.client.ercraft.sleep", AsyncMock())
+
+    def handler(request):
+        if request.url.path.endswith("/roles"):
+            if failure == "http":
+                return httpx.Response(500)
+            if failure == "report":
+                return httpx.Response(200, json={"requestStatus": "failed", "error": "BROKEN"})
+            return httpx.Response(200, json={"requestStatus": "unavailable"})
+        return httpx.Response(200, json={"data": {"status": "failed", "errorCode": "BROKEN"}})
+
+    async with AsyncERBSClient(ERBSConfig(retry_count=0),
+                               transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(UpstreamUnavailable):
+            await client.ercraft_overall_analysis("player:test", 12, nickname="Player Name")

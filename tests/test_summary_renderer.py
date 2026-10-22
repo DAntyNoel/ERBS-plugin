@@ -138,7 +138,7 @@ async def test_published_summary_displays_api_percentiles_and_grades(tmp_path, m
         labels.clear()
         section["axes"][0]["grade"] = None
         await renderer.render(card)
-        assert "—" in labels and "E" not in labels and "P0 · 18场" not in labels
+        assert "—" in labels and "E" not in labels and "P0 · 18场" in labels
 
 
 @pytest.mark.asyncio
