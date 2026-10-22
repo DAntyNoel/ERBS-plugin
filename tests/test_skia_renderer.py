@@ -107,3 +107,23 @@ def test_wrapping_keeps_normal_numbers_whole_and_bounds_long_tokens():
     assert any("18688.15" in line for line in lines)
     assert any("15.17%" in line for line in lines)
     assert all(renderer._measure(line, 17) <= 240 for line in lines)
+
+
+def test_configured_regular_font_keeps_bold_text_visibly_bold():
+    renderer = SkiaCardRenderer(ERBSConfig(download_render_assets=False))
+    renderer._initialize()
+    renderer._primary = renderer._manager.matchFamilyStyleCharacter(
+        "sans-serif", skia.FontStyle.Normal(), ["en"], ord("A"),
+    )
+
+    def ink_pixels(bold):
+        surface = skia.Surface(240, 60)
+        canvas = surface.getCanvas()
+        canvas.clear(skia.ColorWHITE)
+        renderer._label(canvas, "Rating 75%", 10, 42, size=32, color=skia.ColorBLACK, bold=bold)
+        pixels = surface.makeImageSnapshot().toarray(colorType=skia.kRGBA_8888_ColorType)
+        return (pixels[:, :, 0] < 128).sum()
+
+    regular = ink_pixels(False)
+    assert ink_pixels(True) > regular
+    assert ink_pixels(False) == regular

@@ -56,6 +56,8 @@ def payload() -> CardPayload:
             "rp": 4445,
             "scopeLabel": "最近 20 场排位三排",
             "sampleSize": 20,
+            "seasonId": 41,
+            "seasonName": "赛季 S12",
             "axes": [
                 {"key": "survival", "score": 0, "sampleCount": 20},
                 {"key": "combat", "score": 75.25, "sampleCount": 18, "grade": "C"},
@@ -93,7 +95,8 @@ async def test_summary_preserves_zero_missing_and_local_score_semantics(tmp_path
     assert "75.25% · 18场" in labels and "0% · 20场" in labels
     assert labels.count("—") == 2
     assert "100% · 20场" in labels and "0场" in labels and "1场" in labels
-    assert "20场" in labels
+    assert "S12 ERCraft 全部" in labels
+    assert "战绩" in labels and "结果" not in labels
     assert not any(
         word in text
         for text in labels
@@ -103,13 +106,13 @@ async def test_summary_preserves_zero_missing_and_local_score_semantics(tmp_path
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("truncated,sample_size,ranked_count,ranked_total,expected", [
-    (False, 216, 216, 216, "216场"),
-    (False, 20, 7, 7, "20场"),
-    (True, 500, 500, 1168, "500 / 1168 场"),
+@pytest.mark.parametrize("truncated,sample_size,ranked_count,ranked_total", [
+    (False, 216, 216, 216),
+    (False, 20, 7, 7),
+    (True, 500, 500, 1168),
 ])
-async def test_summary_displays_score_percentage_and_total_sample_count(
-    tmp_path, monkeypatch, truncated, sample_size, ranked_count, ranked_total, expected,
+async def test_summary_preserves_axis_counts_without_adding_scope_notes(
+    tmp_path, monkeypatch, truncated, sample_size, ranked_count, ranked_total,
 ):
     card = payload()
     card.sections[0].update(
@@ -131,18 +134,19 @@ async def test_summary_displays_score_percentage_and_total_sample_count(
         await renderer.render(card)
 
     assert "68.41% · 215场" in labels
-    assert expected in labels
+    assert "S12 ERCraft 全部" in labels
+    assert not any("1168" in label or "216场" == label or "20场" == label for label in labels)
     assert not any("99.9" in label or label.startswith("P") for label in labels)
     assert card.sections[0]["axes"][0]["percentile"] == 99.9
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("summary_title,rp_y,tier_y,banner_color,frame_color", [
-    (None, 1229, 1195, (255, 0, 0, 255), (255, 0, 0, 255)),
-    ("冠军之路", 1249, 1215, (50, 55, 70, 255), (247, 234, 216, 255)),
+@pytest.mark.parametrize("summary_title,expected_title", [
+    (None, "光与盐"),
+    ("冠军之路", "冠军之路"),
 ])
-async def test_summary_only_draws_title_band_when_explicitly_configured(
-    tmp_path, monkeypatch, summary_title, rp_y, tier_y, banner_color, frame_color,
+async def test_summary_restores_original_ribbon_and_rp_layout(
+    tmp_path, monkeypatch, summary_title, expected_title,
 ):
     art = tmp_path / "background.png"
     art.write_bytes(colored_image(1024, 1536, skia.ColorRED))
@@ -170,13 +174,41 @@ async def test_summary_only_draws_title_band_when_explicitly_configured(
         monkeypatch.setattr(renderer, "_label", record)
         monkeypatch.setattr(renderer, "_image", record_image)
         image = skia.Image.MakeFromEncoded(await renderer.render(card))
-    assert (("冠军之路", 1201) in labels) is bool(summary_title)
+    assert (expected_title, 1201) in labels
     assert not any(label == "六维实战档案" for label, _ in labels)
-    assert ("4,445 RP", rp_y) in labels
-    assert tier_positions == [tier_y]
+    assert ("4,445 RP", 1249) in labels
+    assert tier_positions == [1215]
     pixels = image.toarray(colorType=skia.kRGBA_8888_ColorType)
-    assert tuple(pixels[1185, 400]) == banner_color
-    assert tuple(pixels[1248, 450]) == frame_color
+    assert tuple(pixels[1185, 400]) == (50, 55, 70, 255)
+    assert tuple(pixels[1248, 450]) == (247, 234, 216, 255)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("season_name,expected", [
+    ("赛季 S12", "S12 ERCraft 全部"),
+    ("Season s13", "S13 ERCraft 全部"),
+    (None, "ERCraft 全部"),
+    ("SEASON_21", "ERCraft 全部"),
+])
+async def test_summary_translates_original_footer_without_inventing_display_season(
+    tmp_path, monkeypatch, season_name, expected,
+):
+    card = payload()
+    card.sections[0]["seasonName"] = season_name
+    labels = []
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False,
+    )) as renderer:
+        original = renderer._label
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append(str(value))
+            return original(canvas, value, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        await renderer.render(card)
+    assert expected in labels
+    assert not any("S41" in label or "S21" in label for label in labels)
 
 
 @pytest.mark.asyncio
@@ -229,7 +261,8 @@ async def test_summary_uses_complete_cached_ercraft_background_and_keeps_labels_
     assert tuple(pixels[10, 10]) == (255, 0, 0, 255)
     assert tuple(pixels[500, 500]) == (255, 0, 0, 255)
     assert "热带次元 艾比盖尔" not in labels
-    assert not any("ERCraft" in label or "DAK.GG" in label for label in labels)
+    assert "S12 ERCraft 全部" in labels
+    assert not any("DAK.GG" in label for label in labels)
 
 
 @pytest.mark.asyncio

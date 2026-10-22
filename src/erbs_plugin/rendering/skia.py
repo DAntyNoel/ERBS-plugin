@@ -128,6 +128,11 @@ class SkiaCardRenderer:
             previous = face
         if current:
             runs.append((current, sk.Font(previous, size)))
+        # A configured regular font still needs the requested bold appearance.
+        if bold:
+            for _, font in runs:
+                if font.getTypeface().fontStyle().weight() < 600:
+                    font.setEmbolden(True)
         return runs
 
     def _measure(self, value: Any, size: float, bold: bool = False) -> float:

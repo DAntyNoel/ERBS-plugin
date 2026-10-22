@@ -28,7 +28,9 @@ async def test_summary_uses_profile_season_local_scores_and_real_sample_counts()
         requests.append(request)
         assert request.url.host == "er.dakgg.io"
         if request.url.path.endswith("/data/seasons"):
-            return httpx.Response(200, json={"seasons": [{"id": 41, "key": "SEASON_12"}]})
+            return httpx.Response(200, json={"seasons": [{
+                "id": 41, "key": "SEASON_12", "name": "赛季 S12",
+            }]})
         if request.url.path.endswith("/profile"):
             return httpx.Response(200, json={
                 "player": {"name": "Kanami"},
@@ -75,6 +77,7 @@ async def test_summary_uses_profile_season_local_scores_and_real_sample_counts()
     assert section["sourceLabel"] == "本地计算"
     assert section["formulaVersion"] == AXES_VERSION
     assert section["seasonId"] == 41
+    assert section["seasonName"] == "赛季 S12"
     assert section["rp"] == 4445
     assert section["tierName"] == "灭钻"
     assert section["tierImageUrl"].endswith("/6.png")

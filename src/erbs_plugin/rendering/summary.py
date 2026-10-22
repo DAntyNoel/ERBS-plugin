@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -17,7 +18,9 @@ INK = 0xFF323746
 ACCENT = 0xFF4A7BB2
 BORDER = 0xFF705449
 MUTED = 0xFF857B70
-LABELS = ("生存", "交战", "运营", "支援", "结果", "稳定性")
+LABELS = ("生存", "交战", "运营", "支援", "战绩", "稳定性")
+# The bundled illustrations use ERCraft style 10, whose title is 빛과 소금.
+ORIGINAL_TITLE = "光与盐"
 
 
 def _finite(value: object) -> bool:
@@ -112,30 +115,30 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
         line([(origin - 90 * sign, 1156), (origin - 37 * sign, 1125),
               (origin - 43 * sign, 1137), (origin - 77 * sign, 1156)], ACCENT)
         diamond(origin - 7 * sign, 1142, 4, ACCENT)
-    center(payload.title, 512, 1162, 30, width=280)
+    nickname = "".join(char for char in payload.title if ord(char) >= 32 and ord(char) != 127)[:32]
+    center(nickname, 512, 1162, min(28, 410 / max(1, len(nickname))), width=410)
 
-    if renderer.config.summary_title:
-        polygon([(346, 1177), (310, 1177), (327, 1192), (310, 1207), (354, 1207)], ACCENT, ACCENT)
-        polygon([(678, 1177), (714, 1177), (697, 1192), (714, 1207), (670, 1207)], ACCENT, ACCENT)
-        polygon([(352, 1171), (672, 1171), (686, 1191), (672, 1211),
-                 (352, 1211), (338, 1191)], INK, ACCENT, 2)
-        line([(358, 1176), (667, 1176)], ACCENT)
-        line([(358, 1206), (667, 1206)], ACCENT)
-        diamond(367, 1191, 3, 0xFFEDCB8B)
-        diamond(657, 1191, 3, 0xFFEDCB8B)
-        center(renderer.config.summary_title, 512, 1201, 26, 0xFFFFF0D0, width=250)
+    polygon([(346, 1177), (310, 1177), (327, 1192), (310, 1207), (354, 1207)], ACCENT, ACCENT)
+    polygon([(678, 1177), (714, 1177), (697, 1192), (714, 1207), (670, 1207)], ACCENT, ACCENT)
+    polygon([(352, 1171), (672, 1171), (686, 1191), (672, 1211),
+             (352, 1211), (338, 1191)], INK, ACCENT, 2)
+    line([(358, 1176), (667, 1176)], ACCENT)
+    line([(358, 1206), (667, 1206)], ACCENT)
+    diamond(367, 1191, 4, 0xFFEDCB8B)
+    diamond(657, 1191, 4, 0xFFEDCB8B)
+    center(renderer.config.summary_title or ORIGINAL_TITLE, 512, 1201, 26,
+           0xFFFFF0D0, width=250)
 
-    rp_offset = 0 if renderer.config.summary_title else -20
-    polygon([(384, 1217 + rp_offset), (639, 1217 + rp_offset), (659, 1239 + rp_offset),
-             (639, 1261 + rp_offset), (384, 1261 + rp_offset), (364, 1239 + rp_offset)],
+    polygon([(384, 1217), (639, 1217), (659, 1239),
+             (639, 1261), (384, 1261), (364, 1239)],
             0xFFF7EAD8, ACCENT)
     rp = section.get("rp")
     has_rp = _finite(rp) and rp >= 0
     tier_image = section.get("tierImageUrl")
     if tier_image:
-        renderer._image(canvas, tier_image, 377, 1215 + rp_offset, 48, 48, background=0)
+        renderer._image(canvas, tier_image, 377, 1215, 48, 48, background=0)
     center(f"{rp:,.0f} RP" if has_rp else "— RP", 539 if tier_image else 512,
-           1249 + rp_offset, 29, width=220)
+           1249, 29, width=220)
 
     for points in ([(137, 1277), (137, 1265), (176, 1265)],
                    [(848, 1265), (887, 1265), (887, 1277)],
@@ -157,23 +160,29 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
                  (x + w, y + h - 12), (x + w - 12, y + h), (x + 12, y + h),
                  (x, y + h - 12), (x, y + 12)], fill, edge)
         if highlighted:
+            ornament = 0xFFB57C30
             for points in ([(x + 6, y + 25), (x + 6, y + 14), (x + 14, y + 6), (x + 45, y + 6)],
                            [(x + w - 45, y + 6), (x + w - 14, y + 6),
-                            (x + w - 6, y + 14), (x + w - 6, y + 25)]):
-                line(points, edge, 2)
-            diamond(x + 37, y + 49, 3, edge)
-            diamond(x + w - 37, y + 49, 3, edge)
+                            (x + w - 6, y + 14), (x + w - 6, y + 25)],
+                           [(x + 6, y + h - 25), (x + 6, y + h - 14),
+                            (x + 14, y + h - 6), (x + 34, y + h - 6)],
+                           [(x + w - 34, y + h - 6), (x + w - 14, y + h - 6),
+                            (x + w - 6, y + h - 14), (x + w - 6, y + h - 25)]):
+                line(points, ornament, 2)
+            diamond(x + 37, y + 49, 3, ornament)
+            diamond(x + w - 37, y + 49, 3, ornament)
         center(LABELS[index], x + w / 2, y + 26, 20, 0xFF7F7061, width=w - 30)
         center(grade if ready else "—", x + w / 2, y + 59, 34, color, width=w - 50)
         count = _count(axis.get("sampleCount"))
+        # The percentage is the local 0..100 score, never the payload's percentile.
         percentage = f"{score:.2f}".rstrip("0").rstrip(".") if ready else ""
         center(f"{percentage}% · {count}场" if ready else f"{count}场",
                x + w / 2, y + 78, 12, 0xFF7F7061, width=w - 20)
 
-    # The percentage is the local 0..100 score, never the payload's percentile.
-    total = (f"{_count(section.get('rankedCount'))} / {_count(section.get('rankedTotal'))} 场"
-             if section.get("truncated") is True else f"{_count(section.get('sampleSize'))}场")
-    center(total, 512, 1495, 17, width=860)
+    # DAK season IDs/keys are internal sequences; only the display name supplies S12, etc.
+    season = re.search(r"\bS\d+\b", str(section.get("seasonName") or ""), re.IGNORECASE)
+    footer = f"{season[0].upper()} ERCraft 全部" if season else "ERCraft 全部"
+    center(footer, 512, 1498, 16, width=860)
     encoded = surface.makeImageSnapshot().encodeToData(sk.kPNG, 100)
     if encoded is None:
         raise RenderFailed("总结卡 PNG 编码失败")

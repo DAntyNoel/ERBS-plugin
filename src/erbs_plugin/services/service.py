@@ -352,6 +352,7 @@ class ERBSService(DakQueryMixin):
             "formulaVersion": scored.calibration_version,
             "scopeLabel": scope_label,
             "seasonId": profile.season_id,
+            "seasonName": selected_season.get("name"),
             "rp": rp,
             "tierName": rank["tierName"],
             "tierImageUrl": rank.get("imageUrl"),
