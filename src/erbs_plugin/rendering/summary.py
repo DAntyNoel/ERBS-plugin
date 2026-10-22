@@ -1,4 +1,4 @@
-"""Local six-axis portrait cards, inspired by ERCraft's public play-card layout."""
+"""Locally drawn portraits from local scores or published ERCraft evaluations."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 
 from ..exceptions import AssetMissing, RenderFailed
 from ..models import CardPayload
+from ..published_summary import PUBLISHED_SUMMARY_SOURCE, published_summary_grade
 from ..scoring.axes import AXIS_ORDER
 from ..scoring.grades import summary_grade
 from .resources import is_summary_art_url
@@ -146,21 +147,23 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
                    [(848, 1476), (887, 1476), (887, 1456)]):
         line(points, ACCENT, 2)
     axes = {a.get("key"): a for a in section.get("axes", ()) if isinstance(a, Mapping)}
+    published = section.get("source") == PUBLISHED_SUMMARY_SOURCE
     for index, key in enumerate(AXIS_ORDER):
         axis = axes.get(key, {})
         score = axis.get("score")
-        # Recompute display bands for cached or caller-provided payloads as well.
-        grade = summary_grade(score)
+        grade = published_summary_grade(axis) if published else summary_grade(score)
         ready = grade is not None
-        highlighted = grade == "S"
-        fill, edge, color = ((0xFFFFF3D7, 0xFFC69A4B, 0xFF8E6129) if highlighted else
-                             (0xFFF4EFE7, 0xFFD1C8BD, MUTED))
+        highlighted = grade in {"S", "SS", "SSS"}
+        fill, edge, color, ornament = {
+            "S": (0xFFFFF3D7, 0xFFC69A4B, 0xFF8E6129, 0xFFB57C30),
+            "SS": (0xFFF1E6F5, 0xFF9C77B5, 0xFF765094, 0xFF9C77B5),
+            "SSS": (0xFF473349, 0xFFD49CB5, 0xFFF5D7E6, 0xFFD49CB5),
+        }.get(grade, (0xFFF4EFE7, 0xFFD1C8BD, MUTED, 0xFF94877A))
         x, y, w, h = 168 + index % 3 * 236, 1277 + index // 3 * 101, 216, 87
         polygon([(x + 12, y), (x + w - 12, y), (x + w, y + 12),
                  (x + w, y + h - 12), (x + w - 12, y + h), (x + 12, y + h),
                  (x, y + h - 12), (x, y + 12)], fill, edge)
         if highlighted:
-            ornament = 0xFFB57C30
             for points in ([(x + 6, y + 25), (x + 6, y + 14), (x + 14, y + 6), (x + 45, y + 6)],
                            [(x + w - 45, y + 6), (x + w - 14, y + 6),
                             (x + w - 6, y + 14), (x + w - 6, y + 25)],
@@ -171,13 +174,17 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
                 line(points, ornament, 2)
             diamond(x + 37, y + 49, 3, ornament)
             diamond(x + w - 37, y + 49, 3, ornament)
-        center(LABELS[index], x + w / 2, y + 26, 20, 0xFF7F7061, width=w - 30)
+        detail_color = 0xFFEDCBD9 if grade == "SSS" else 0xFF7F7061
+        center(LABELS[index], x + w / 2, y + 26, 20, detail_color, width=w - 30)
         center(grade if ready else "—", x + w / 2, y + 59, 34, color, width=w - 50)
         count = _count(axis.get("sampleCount"))
-        # The percentage is the local 0..100 score, never the payload's percentile.
-        percentage = f"{score:.2f}".rstrip("0").rstrip(".") if ready else ""
-        center(f"{percentage}% · {count}场" if ready else f"{count}场",
-               x + w / 2, y + 78, 12, 0xFF7F7061, width=w - 20)
+        if published:
+            value = axis.get("percentile")
+            percentage = f"P{math.floor(value * 10 + 0.5) / 10:g}" if ready else ""
+        else:
+            percentage = f"{score:.2f}".rstrip("0").rstrip(".") + "%" if ready else ""
+        center(f"{percentage} · {count}场" if ready else f"{count}场",
+               x + w / 2, y + 78, 12, detail_color, width=w - 20)
 
     # DAK season IDs/keys are internal sequences; only the display name supplies S12, etc.
     season = re.search(r"\bS\d+\b", str(section.get("seasonName") or ""), re.IGNORECASE)

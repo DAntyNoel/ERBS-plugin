@@ -45,6 +45,14 @@ erbs overview playername --format bytes > player.png
 
 ## 插画总结图
 
+网站评价可通过 `await service.published_player_summary("玩家昵称")` 获取，再传入
+`SkiaCardRenderer.render()` 在本地生成 PNG。该独立入口读取 ERCraft 当前赛季的
+`scope=overall` 报告，直接显示接口等级（E–SSS）、百分位 P 和各轴有效场数。
+不会拉取 DAK 对局、补入普通匹配或回退到本地评分；报告准备中、样本不足、
+身份/赛季/范围不符时抛出 `UpstreamUnavailable`。角色抽图按报告角色场次加权，
+DAK 元数据仅用于素材名称与稀有度且允许缺失。报告时间、版本和原始轴字段保留在 payload 中，
+不将网站缓存视为刚刚重算的最新完整战绩。下文 `summary` CLI/API 仍为独立保留的本地流程。
+
 `summary` 参考 ERCraft 的竖版插画卡布局，复用插件已有的本地六维评分。默认统计本赛季排位三排，上限 500 场；不超过上限时统计全部，超过时取最近 500 场。排位不足 20 场时，用本赛季最近的普通匹配三排补足 20 场：
 
 ```bash

@@ -106,6 +106,41 @@ async def test_summary_preserves_zero_missing_and_local_score_semantics(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_published_summary_displays_api_percentiles_and_grades(tmp_path, monkeypatch):
+    card = payload()
+    section = card.sections[0]
+    section["source"] = "ercraft-api"
+    for axis, percentile, grade in zip(
+        section["axes"], (0, 65.56, 95, 85, 70, 69.99999999),
+        ("E", "A", "SSS", "SS", "S", "A"), strict=True,
+    ):
+        axis.update(score=1, percentile=percentile, grade=grade, status="partial",
+                    sourceGames=20, eligibleGames=18, sampleCount=18)
+    labels = []
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False,
+    )) as renderer:
+        original = renderer._label
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append(str(value))
+            return original(canvas, value, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        image = skia.Image.MakeFromEncoded(await renderer.render(card))
+        assert (image.width(), image.height()) == (1024, 1536)
+        assert labels.count("A") == 2
+        assert all(grade in labels for grade in ("E", "S", "SS", "SSS"))
+        assert "P0 · 18场" in labels and "P65.6 · 18场" in labels
+        assert "P95 · 18场" in labels and labels.count("P70 · 18场") == 2
+        assert not any("%" in label for label in labels)
+        labels.clear()
+        section["axes"][0]["grade"] = None
+        await renderer.render(card)
+        assert "—" in labels and "E" not in labels and "P0 · 18场" not in labels
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("truncated,sample_size,ranked_count,ranked_total", [
     (False, 216, 216, 216),
     (False, 20, 7, 7),

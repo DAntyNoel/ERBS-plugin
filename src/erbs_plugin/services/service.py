@@ -19,6 +19,7 @@ from ..scoring.grades import SUMMARY_GRADE_VERSION, summary_grade
 from ..summary_art import SUMMARY_ART_VERSION
 from ..summary_scope import SUMMARY_MINIMUM_SAMPLE, SUMMARY_SCOPE_VERSION
 from .dak_queries import DakQueryMixin
+from .published_summary import published_player_summary
 from .summary_art import build_summary_art_candidates
 from .summary_data import fetch_summary_sample
 
@@ -223,6 +224,10 @@ class ERBSService(DakQueryMixin):
             sections=(build_radar_section(profile),),
             footer=footer,
         )
+
+    async def published_player_summary(self, nickname: str) -> CardPayload:
+        """Use ERCraft's current-season overall evaluation and render it locally."""
+        return await published_player_summary(self.client, nickname)
 
     async def player_summary(
         self, nickname: str, *, count: int = 20, season: str | None = None

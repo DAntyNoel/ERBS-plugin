@@ -223,6 +223,39 @@ class AsyncERBSClient:
                 raise UpstreamUnavailable("ERCraft 六维组件结构不匹配")
         return payload
 
+    async def ercraft_player_summary(self, nickname: str) -> Mapping[str, Any]:
+        """Resolve the public website identity and current display season."""
+        return await self._request_json(
+            f"{self.config.ercraft_api_base_url}/api/players/{quote(nickname, safe='')}/summary",
+            params={"cacheOnly": "true"},
+            headers={"x-er-cache-only": "true", "x-er-no-upstream": "true"},
+            ttl=self.config.player_cache_seconds,
+            player_lookup=True,
+            service="ERCraft",
+        )
+
+    async def ercraft_overall_analysis(
+        self, player_id: str, display_season: int,
+    ) -> Mapping[str, Any]:
+        """Read the website's overall report, including its published percentiles."""
+        def ready_report(response: httpx.Response) -> Mapping[str, Any]:
+            payload = response.json()
+            if not isinstance(payload, Mapping) or payload.get("requestStatus") != "ready":
+                # HTTP 200 can mean preparing. Do not cache that as a successful report.
+                raise UpstreamUnavailable("ERCraft 评价报告尚未就绪，请稍后再试。")
+            return payload
+
+        return await self._request_json(
+            f"{self.config.ercraft_api_base_url}/api/player-analysis/roles",
+            params={
+                "ownerPlayerId": player_id, "displaySeasonId": display_season,
+                "scope": "overall",
+            },
+            ttl=self.config.match_cache_seconds,
+            service="ERCraft",
+            response_parser=ready_report,
+        )
+
     async def player_default(self, nickname: str) -> Mapping[str, Any]:
         return await self._request_json(
             f"/api/v1/players/{quote(nickname, safe='')}",

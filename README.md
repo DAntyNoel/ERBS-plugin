@@ -51,7 +51,15 @@ retained for compatibility.
 
 ## Illustrated player summary
 
-The portrait summary follows ERCraft's illustrated card layout and uses the existing local
+For website-backed evaluation, call `ERBSService.published_player_summary(nickname)` and pass
+the returned payload to `SkiaCardRenderer.render()`. It reads ERCraft's current-season
+`scope=overall` report and displays the supplied grades (E through SSS), population percentiles
+(`P`), and eligible game counts. It never fetches DAK matches or falls back to local scoring.
+Preparing, insufficient, or mismatched reports raise `UpstreamUnavailable`; HTTP 200 alone
+does not imply a usable evaluation. Website report timestamps and versions remain in the payload.
+DAK character metadata is optional and used only for artwork names and rarity.
+
+The separate `summary` CLI/API follows ERCraft's illustrated card layout and uses the existing local
 six-axis calculation. The sample includes ranked squad games from the current season, up to
 500 newest games by default (the whole season when there are at most 500);
 when there are fewer than 20, recent normal squad games from that season fill it to 20:
