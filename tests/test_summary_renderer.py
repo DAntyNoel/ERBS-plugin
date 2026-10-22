@@ -11,6 +11,7 @@ from erbs_plugin.assets import AssetManager
 from erbs_plugin.assets.manager import AssetEntry
 from erbs_plugin.models import CardPayload
 from erbs_plugin.rendering import SkiaCardRenderer
+from erbs_plugin.summary_style import SUMMARY_STYLE_TITLES
 
 skia = pytest.importorskip("skia")
 SUMMARY_ART_URL = "https://ercraft.net/assets/play-cards/67/10.webp"
@@ -138,6 +139,41 @@ async def test_published_summary_displays_api_percentiles_and_grades(tmp_path, m
         section["axes"][0]["grade"] = None
         await renderer.render(card)
         assert "—" in labels and "E" not in labels and "P0 · 18场" not in labels
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("override", [None, "自定义称号"])
+async def test_published_summary_selects_title_from_api_percentiles(
+    tmp_path, monkeypatch, override,
+):
+    card = payload()
+    section = card.sections[0]
+    section.update(source="ercraft-api", displayTitle="光与盐", styleId="10")
+    for axis in section["axes"]:
+        axis.update(percentile=50, grade="B", status="available", sourceGames=20, eligibleGames=20)
+    labels = []
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False, summary_title=override,
+    )) as renderer:
+        original = renderer._label
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append((str(value), args[1]))
+            return original(canvas, value, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        await renderer.render(card)
+        assert (override or SUMMARY_STYLE_TITLES["07"], 1201) in labels
+        assert ("光与盐", 1201) not in labels
+        labels.clear()
+        section["axes"][1].update(percentile=75, grade="S")
+        section["axes"][4].update(percentile=20, grade="D")
+        await renderer.render(card)
+        assert (override or SUMMARY_STYLE_TITLES["13"], 1201) in labels
+        labels.clear()
+        section["axes"][0]["percentile"] = None
+        await renderer.render(card)
+        assert (override or "六维实战档案", 1201) in labels
 
 
 @pytest.mark.asyncio

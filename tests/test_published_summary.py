@@ -97,6 +97,9 @@ async def test_website_report_is_used_without_dak_matches_or_local_scoring(tmp_p
     assert section["rp"] == 4445
     assert section["displaySeasonId"] == 12 and section["seasonId"] == 41
     assert section["sourceMeta"]["scope"]["computedAt"] == "2026-08-30T15:11:27.049Z"
+    assert section["styleId"] == "09"
+    assert section["styleRuleVersion"] == "play-card-percentile.v4"
+    assert section["displayTitle"] == "精明的操盘运营手"
     assert [axis["grade"] for axis in section["axes"]] == ["A", "C", "SSS", "SS", "D", "A"]
     for actual, original in zip(section["axes"], report()["report"]["target"]["overallAxes"],
                                 strict=True):

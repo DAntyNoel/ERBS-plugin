@@ -12,6 +12,7 @@ from ..models import CardPayload
 from ..published_summary import PUBLISHED_SUMMARY_SOURCE, published_summary_grade
 from ..scoring.axes import AXIS_ORDER
 from ..scoring.grades import summary_grade
+from ..summary_style import SUMMARY_STYLE_TITLES, select_summary_style
 from .resources import is_summary_art_url
 
 PAPER = 0xFFFFFCF2
@@ -20,7 +21,7 @@ ACCENT = 0xFF4A7BB2
 BORDER = 0xFF705449
 MUTED = 0xFF857B70
 LABELS = ("生存", "交战", "运营", "支援", "战绩", "稳定性")
-# The bundled illustrations use ERCraft style 10, whose title is 빛과 소금.
+# Historical local-score cards retain their existing illustrated-card title.
 ORIGINAL_TITLE = "光与盐"
 
 
@@ -127,7 +128,14 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
     line([(358, 1206), (667, 1206)], ACCENT)
     diamond(367, 1191, 4, 0xFFEDCB8B)
     diamond(657, 1191, 4, 0xFFEDCB8B)
-    center(renderer.config.summary_title or ORIGINAL_TITLE, 512, 1201, 26,
+    published = section.get("source") == PUBLISHED_SUMMARY_SOURCE
+    if published:
+        # Resolve from API axes even for older cached cards with a fixed displayTitle.
+        style_id = select_summary_style(section.get("axes"))
+        default_title = SUMMARY_STYLE_TITLES.get(style_id, "六维实战档案")
+    else:
+        default_title = ORIGINAL_TITLE
+    center(renderer.config.summary_title or default_title, 512, 1201, 26,
            0xFFFFF0D0, width=250)
 
     polygon([(384, 1217), (639, 1217), (659, 1239),
@@ -147,7 +155,6 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
                    [(848, 1476), (887, 1476), (887, 1456)]):
         line(points, ACCENT, 2)
     axes = {a.get("key"): a for a in section.get("axes", ()) if isinstance(a, Mapping)}
-    published = section.get("source") == PUBLISHED_SUMMARY_SOURCE
     for index, key in enumerate(AXIS_ORDER):
         axis = axes.get(key, {})
         score = axis.get("score")

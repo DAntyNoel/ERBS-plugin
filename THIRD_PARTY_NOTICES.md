@@ -14,10 +14,15 @@
   - The local summary card references the public play-card layout at
     https://ercraft.net/player/dantynoel (inspected 2026-10-21). Drawing code is implemented
     in Python/Skia. Website character illustrations and fonts are not bundled; an explicit
-    local 1024×1536 background can be supplied by the caller. The local card displays historical
+    local 1024×1536 background can be supplied by the caller. The separate local-score card displays historical
     six-axis scores with independently defined S/A/B/C/D/E display bands
     (`local-six-axis-bands.v1`: thresholds 70/55/40/25/10). These bands do not reproduce ERCraft's
     current website grades, population percentiles or titles, and do not change the numerical core.
+  - The website-backed portrait displays grades and population percentiles supplied by ERCraft's
+    public API. Its title selector follows the public `play-card-percentile.v4` behavior in
+    https://ercraft.net/assets/PlayCardDialog-s8kz-wDg.js (verified 2026-10-22), with configured
+    Chinese titles. Rule provenance is recorded in `docs/README.zh-CN.md`; the numerical
+    scoring core is unchanged.
 
 - IHAHBOT, Apache License 2.0, https://github.com/team-lument/IHAHBOT
   - Referenced for Eternal Return asset taxonomy and image-first output architecture.

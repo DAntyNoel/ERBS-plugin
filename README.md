@@ -58,6 +58,12 @@ the returned payload to `SkiaCardRenderer.render()`. It reads ERCraft's current-
 Preparing, insufficient, or mismatched reports raise `UpstreamUnavailable`; HTTP 200 alone
 does not imply a usable evaluation. Website report timestamps and versions remain in the payload.
 DAK character metadata is optional and used only for artwork names and rarity.
+The ribbon title follows the website's `play-card-percentile.v4` selector, using only the
+returned percentiles and preserving its rule priority and ties. The 13 Chinese titles are
+listed in the [Chinese guide](docs/README.zh-CN.md). Payloads include `styleId`,
+`styleRuleVersion`, and `displayTitle`; `summary_title` still overrides the displayed ribbon.
+Drawing retains the existing illustration and layout. Local match scores never supply a
+website-style title.
 
 The separate `summary` CLI/API follows ERCraft's illustrated card layout and uses the existing local
 six-axis calculation. The sample includes ranked squad games from the current season, up to

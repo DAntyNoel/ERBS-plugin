@@ -13,6 +13,7 @@ from ..models import CardPayload
 from ..published_summary import PUBLISHED_SUMMARY_SOURCE, published_summary_grade
 from ..scoring.axes import AXIS_LABELS, AXIS_ORDER
 from ..summary_art import SUMMARY_ART_VERSION
+from ..summary_style import SUMMARY_STYLE_TITLES, SUMMARY_STYLE_VERSION, select_summary_style
 from .summary_art import build_summary_art_candidates
 
 
@@ -80,6 +81,7 @@ async def published_player_summary(client: AsyncERBSClient, nickname: str) -> Ca
         "score": axes_by_key[key].get("combinedScore"),
         "sampleCount": axes_by_key[key]["eligibleGames"],
     } for key in AXIS_ORDER]
+    style_id = select_summary_style(axes)
     character_scopes = target.get("characterScopes")
     usage = [
         row for row in (character_scopes if isinstance(character_scopes, list) else ())
@@ -102,6 +104,8 @@ async def published_player_summary(client: AsyncERBSClient, nickname: str) -> Ca
     section: dict[str, Any] = {
         "type": "player-summary", "source": PUBLISHED_SUMMARY_SOURCE,
         "sourceLabel": "ERCraft", "axes": axes,
+        "styleId": style_id, "styleRuleVersion": SUMMARY_STYLE_VERSION,
+        "displayTitle": SUMMARY_STYLE_TITLES.get(style_id),
         "sampleSize": sample_size, "scopeLabel": f"S{season} ERCraft 全部",
         "seasonId": api_season, "displaySeasonId": season, "seasonName": f"S{season}",
         "rp": identity.get("rp"), "tierName": identity.get("tier"),
