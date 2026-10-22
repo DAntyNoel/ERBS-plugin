@@ -15,6 +15,7 @@ from ..models import CardPayload, MatchRecord, PlayerProfile
 from ..radar import RadarDataSource, RadarProfile, RadarSample, RadarScorer, build_radar_section
 from ..radar.scoring import published_profile
 from ..scoring import score_match
+from ..scoring.grades import SUMMARY_GRADE_VERSION, summary_grade
 from .dak_queries import DakQueryMixin
 
 _MMR_CHART_MATCH_COUNT = 20
@@ -321,7 +322,12 @@ class ERBSService(DakQueryMixin):
         )
         section = {
             "type": "player-summary",
-            "axes": radar["axes"],
+            "axes": [
+                {**axis, "grade": summary_grade(axis["score"]),
+                 "gradeVersion": SUMMARY_GRADE_VERSION}
+                for axis in radar["axes"]
+            ],
+            "gradeVersion": SUMMARY_GRADE_VERSION,
             "sampleSize": scored.sample_size,
             "requestedCount": count,
             "source": "local",

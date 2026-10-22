@@ -52,7 +52,7 @@ erbs summary dantynoel --format path --output ./summary.png
 erbs summary dantynoel --count 40 --art ./illustration.png --card-title "六维实战档案" --format path --output ./summary-custom.png
 ```
 
-`--count` 支持 1–60 场，`--season` 可指定 DAK 赛季。未指定赛季时，对局样本与玩家资料的当前赛季保持一致。图中标注实际取到的最近场数，每个维度显示本地分数与有效样本数，缺失项保持不可用；不会把最近对局包装为赛季全部数据，也不会生成网站百分位或字母评级。即使启用了雷达图的 ERCraft API 备选，总结图仍仅使用本地评分。
+`--count` 支持 1–60 场，`--season` 可指定 DAK 赛季。未指定赛季时，对局样本与玩家资料的当前赛季保持一致。图中标注实际取到的最近场数，每个维度显示本地字母等级、数值分数与有效样本数。等级使用固定分数区间：S ≥70、A ≥55、B ≥40、C ≥25、D ≥10，其余有效分数为 E。此规则版本为 `local-six-axis-bands.v1`，属于本地显示规则，与 ERCraft 网站等级及人群百分位独立；缺失或无效分数不授予等级。最近对局不会标作赛季全部数据。即使启用了雷达图的 ERCraft API 备选，总结图仍仅使用本地评分。
 
 `--art` 要求本机可解码的栅格底图，尺寸必须为 1024×1536 像素；未指定时使用样本中最常玩的实验体及已缓存的 DAK 素材。`--card-title` 只修改显示称号。Python 对应配置为 `ERBSConfig(summary_art_path=Path("illustration.png"), summary_title="六维实战档案")`，两项默认均为 `None`，不影响评分或查询缓存。
 
@@ -63,7 +63,7 @@ png_path = await player_summary("dantynoel", format="path", output="summary.png"
 json_text = await query("summary", "dantynoel", count=20)
 ```
 
-总结图使用独立的 180 秒查询缓存，不会复用已有雷达图缓存。
+总结图使用独立的 180 秒查询缓存，缓存键包含本地等级版本，旧版纯数值总结会重新生成，不会复用已有雷达图缓存。六维数值公式及雷达图展示保持原有行为。
 
 ## Python API
 

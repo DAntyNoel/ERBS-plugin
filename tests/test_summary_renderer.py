@@ -23,7 +23,7 @@ def payload() -> CardPayload:
             "scopeLabel": "最近 20 场排位三排",
             "axes": [
                 {"key": "survival", "score": 0, "sampleCount": 20},
-                {"key": "combat", "score": 75.25, "sampleCount": 18},
+                {"key": "combat", "score": 75.25, "sampleCount": 18, "grade": "C"},
                 {"key": "macro", "score": None, "sampleCount": 0},
                 {"key": "support", "score": 100, "sampleCount": 20},
                 {"key": "finish", "score": 60, "sampleCount": 20},
@@ -53,11 +53,12 @@ async def test_summary_preserves_zero_missing_and_local_score_semantics(tmp_path
         png = await renderer.render(payload())
     image = skia.Image.MakeFromEncoded(png)
     assert (image.width(), image.height()) == (1024, 1536)
-    assert "0.0" in labels and "100.0" in labels and "75.2" in labels
+    assert "E" in labels and labels.count("S") == 2 and "A" in labels
+    assert "75.25 分 · 18 场" in labels and "0 分 · 20 场" in labels
     assert labels.count("—") == 2
-    assert "18 场 · / 100" in labels and "1 场 · 数据不足" in labels
-    assert "最近 20 场排位三排 · 本地评分" in labels
-    assert not any(text.startswith("P75") or text in {"S", "SS", "SSS", "A"} for text in labels)
+    assert "100 分 · 20 场" in labels and "1 场 · 数据不足" in labels
+    assert "最近 20 场排位三排 · 本地评级" in labels
+    assert not any(text.startswith("P75") or text in {"SS", "SSS", "C"} for text in labels)
 
 
 @pytest.mark.asyncio

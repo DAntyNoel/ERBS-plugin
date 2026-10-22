@@ -62,8 +62,11 @@ erbs summary dantynoel --count 40 --art ./illustration.png \
 
 `--count` accepts 1–60 games. `--season` selects a DAK season; otherwise the sample uses the
 profile's current season. The card labels the actual recent-match sample and displays each
-axis's score and eligible game count. Missing scores remain unavailable. It does not assign
-website population percentiles or letter grades, and never uses the optional ERCraft API fallback.
+axis's local letter grade, numeric score and eligible game count. Grades use fixed score bands:
+S ≥70, A ≥55, B ≥40, C ≥25, D ≥10, otherwise E. These are local display bands
+(`gradeVersion=local-six-axis-bands.v1`), independent of ERCraft's website grades and population
+percentiles. Missing or invalid scores have no grade. The summary never uses the optional ERCraft
+API fallback.
 
 `--art` requires a decodable local raster background image with exactly 1024×1536 pixels.
 Without it, the renderer uses the most-played character from the sampled games and cached DAK
@@ -79,6 +82,7 @@ json_text = await query("summary", "dantynoel", count=20)
 ```
 
 Summary results have an independent 180-second cache and do not reuse radar payloads.
+Its cache key includes the local grade version so earlier numeric-only summaries are regenerated.
 
 ## Python API
 
@@ -150,9 +154,11 @@ six-axis data is incomplete. A successful backup replaces the whole radar and id
 it never mixes current published axes with historical local axes or substitutes a season-wide report.
 Unavailable backups preserve the local scores and missing-data reason.
 
-The public letter-grade cuts differ from today's ERCraft website; JSON identifies them through
-`gradeVersion`, while cards display numeric scores. See [scoring details](docs/SCORING.zh-CN.md)
-for provenance, formulas, supported inputs, and offline verification.
+The historical match-grade cuts differ from today's ERCraft website; match JSON identifies them
+through `gradeVersion=ercraft-public-fine-cuts.v1`. The illustrated summary applies the separate
+local S/A/B/C/D/E display bands described above to unchanged six-axis scores. Radar scores and their
+presentation remain unchanged. See [scoring details](docs/SCORING.zh-CN.md) for provenance,
+formulas, supported inputs, and offline verification.
 
 ## Data, cache, and assets
 

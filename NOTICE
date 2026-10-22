@@ -3,3 +3,7 @@ Copyright 2026 DAntyNoel
 
 This product includes design and architectural ideas informed by open-source projects listed in
 THIRD_PARTY_NOTICES.md. No waves-plugin HTML or UI template is included.
+
+The illustrated summary's S/A/B/C/D/E grades use independently defined local score bands
+(local-six-axis-bands.v1: thresholds 70/55/40/25/10). These display grades are not ERCraft's website
+grades or population percentiles and do not modify the adapted numerical scoring core.

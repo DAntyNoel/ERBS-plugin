@@ -8,6 +8,7 @@ import pytest
 
 from erbs_plugin import AXES_VERSION, AsyncERBSClient, ERBSConfig, ERBSService, InvalidQuery
 from erbs_plugin.radar import RadarDataSource
+from erbs_plugin.scoring.grades import SUMMARY_GRADE_VERSION, summary_grade
 
 
 def reference_match(game_id: int) -> dict[str, object]:
@@ -78,8 +79,12 @@ async def test_summary_uses_profile_season_local_scores_and_real_sample_counts()
     assert section["characterImageUrl"] == "//cdn.dak.gg/full.png"
     assert section["displayTitle"] == "六维实战档案"
     assert len(section["axes"]) == 6
-    assert all(axis["grade"] is None and axis["percentile"] is None for axis in section["axes"])
+    assert section["gradeVersion"] == SUMMARY_GRADE_VERSION
+    assert all(axis["percentile"] is None for axis in section["axes"])
+    assert all(axis["gradeVersion"] == SUMMARY_GRADE_VERSION for axis in section["axes"])
+    assert all(axis["grade"] == summary_grade(axis["score"]) for axis in section["axes"])
     assert section["axes"][-1]["score"] == 100
+    assert section["axes"][-1]["grade"] == "S"
     assert section["axes"][-1]["sampleCount"] == 2
     assert card.footer["scoringSource"] == "local"
     assert len(requests) == 4
@@ -111,6 +116,9 @@ async def test_summary_preserves_unavailable_axes_and_does_not_use_fallback() ->
         await client.aclose()
 
     assert all(axis["score"] is None for axis in card.sections[0]["axes"])
+    assert all(axis["grade"] is None for axis in card.sections[0]["axes"])
+    assert all(axis["percentile"] is None for axis in card.sections[0]["axes"])
+    assert card.sections[0]["gradeVersion"] == SUMMARY_GRADE_VERSION
     assert card.sections[0]["source"] == "local"
     assert card.sections[0]["characterImageUrl"] is None
 

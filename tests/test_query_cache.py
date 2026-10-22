@@ -12,6 +12,7 @@ import erbs_plugin.cache.query as query_cache_module
 from erbs_plugin.cache import QueryCacheDatabase, query_cache_spec
 from erbs_plugin.config import ERBSConfig
 from erbs_plugin.models import CardPayload
+from erbs_plugin.scoring.grades import SUMMARY_GRADE_VERSION
 
 EXPECTED_OPERATIONS = {
     "search", "character-stats", "character-equipment", "tier-stats", "tier-cutoffs",
@@ -105,6 +106,22 @@ async def test_summary_cache_is_distinct_from_radar_and_requested_sample_count(t
     assert await database.get({**summary_spec, "count": 40}) is None
     cached = await database.get(summary_spec)
     assert cached is not None and cached.kind == "summary"
+
+
+@pytest.mark.asyncio
+async def test_summary_grade_version_rejects_old_numeric_only_payload_cache(tmp_path) -> None:
+    database = QueryCacheDatabase(tmp_path / "queries.sqlite3")
+    current_spec = _spec("summary")
+    assert current_spec["summaryGradeVersion"] == SUMMARY_GRADE_VERSION
+    old_spec = {key: value for key, value in current_spec.items() if key != "summaryGradeVersion"}
+    await database.set(old_spec, CardPayload(kind="summary", title="numeric-only"), ttl=180)
+
+    assert await database.get(current_spec) is None
+
+
+@pytest.mark.parametrize("operation", sorted(EXPECTED_OPERATIONS - {"summary"}))
+def test_summary_grade_version_does_not_change_other_query_cache_specs(operation: str) -> None:
+    assert "summaryGradeVersion" not in _spec(operation)
 
 
 @pytest.mark.asyncio

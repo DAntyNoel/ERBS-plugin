@@ -9,6 +9,7 @@ from typing import Any
 from ..exceptions import RenderFailed
 from ..models import CardPayload
 from ..scoring.axes import AXIS_ORDER
+from ..scoring.grades import summary_grade
 
 PAPER = 0xFFFFFCF2
 INK = 0xFF323746
@@ -122,13 +123,13 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
                    [(848, 1476), (887, 1476), (887, 1456)]):
         line(points, ACCENT, 2)
     axes = {a.get("key"): a for a in section.get("axes", ()) if isinstance(a, Mapping)}
-    available = [a["score"] for a in axes.values() if _finite(a.get("score"))]
-    highest = max(available) if available else None
     for index, key in enumerate(AXIS_ORDER):
         axis = axes.get(key, {})
         score = axis.get("score")
-        ready = _finite(score)
-        highlighted = ready and score == highest
+        # Recompute display bands for cached or caller-provided payloads as well.
+        grade = summary_grade(score)
+        ready = grade is not None
+        highlighted = grade == "S"
         fill, edge, color = ((0xFFFFF3D7, 0xFFC69A4B, 0xFF8E6129) if highlighted else
                              (0xFFF4EFE7, 0xFFD1C8BD, MUTED))
         x, y, w, h = 168 + index % 3 * 236, 1277 + index // 3 * 101, 216, 87
@@ -143,14 +144,14 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
             diamond(x + 37, y + 49, 3, edge)
             diamond(x + w - 37, y + 49, 3, edge)
         center(LABELS[index], x + w / 2, y + 26, 20, 0xFF7F7061, width=w - 30)
-        center(f"{score:.1f}" if ready else "—", x + w / 2, y + 59, 34, color, width=w - 50)
+        center(grade if ready else "—", x + w / 2, y + 59, 34, color, width=w - 50)
         count = axis.get("sampleCount", 0)
-        center(f"{count} 场 · / 100" if ready else f"{count} 场 · 数据不足",
+        center(f"{score:g} 分 · {count} 场" if ready else f"{count} 场 · 数据不足",
                x + w / 2, y + 78, 12, 0xFF7F7061, width=w - 20)
 
     # Keep the source/scope explicit; raw local scores are never presented as percentiles.
     scope = section.get("scopeLabel", "最近对局")
-    center(f"{scope} · 本地评分", 512, 1495, 17, width=860)
+    center(f"{scope} · 本地评级", 512, 1495, 17, width=860)
     cached = " · 缓存" if payload.footer.get("cached") else ""
     center(f"数据 DAK.GG{cached} · 历史六维公式 v1.1", 512, 1513, 12, MUTED, width=900)
     encoded = surface.makeImageSnapshot().encodeToData(sk.kPNG, 100)

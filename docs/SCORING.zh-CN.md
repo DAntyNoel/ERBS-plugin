@@ -95,10 +95,35 @@ result = score_match(raw_match, tier_key="platinum")
 战绩列表的 `performance` 使用同一引擎。缓存键包含单局、六维版本和接口备选设置，
 旧八维或五维卡片不会继续命中。
 
-公开历史字母门槛与现站存在差异，JSON 的 `gradeVersion=ercraft-public-fine-cuts.v1`
-明确标识其来源，卡片只显示数值。本地六维采用公开历史生产逻辑，与当前网站的
+单局公开历史字母门槛与现站存在差异，单局 JSON 的
+`gradeVersion=ercraft-public-fine-cuts.v1` 明确标识其来源。本地六维采用公开历史生产逻辑，与当前网站的
 `s12-six-axis-role-reference.v2` 有版本差异；后者的当前完整源码及比较分布尚未取得。
 本地 JSON 不生成当前人群百分位或相对等级。
+
+## 总结图本地字母等级
+
+`summary` 在原有六维数值之上增加 S/A/B/C/D/E 显示等级，规则版本为
+`local-six-axis-bands.v1`。它按单个轴的原始数值分数使用固定区间：
+
+| 有效分数范围 | 总结图等级 |
+|---|---|
+| 70–100 | S |
+| 55–<70 | A |
+| 40–<55 | B |
+| 25–<40 | C |
+| 10–<25 | D |
+| 0–<10 | E |
+
+此等级是本地显示规则，不改变单局数值核心、六维聚合、逐轴样本数或缺失状态，
+也不声称复用了 ERCraft 网站当前等级、百分位或称号规则。分数必须是 0–100 内的
+有限数值；缺失、布尔值、NaN、无穷大及越界值均返回 `grade=null`，不会降为 E。
+
+总结图 section 和每个 axis 都提供 `gradeVersion=local-six-axis-bands.v1`，
+axis 同时保留 `score`、`sampleCount`、`status`，`percentile` 仍为 `null`。
+卡片以字母等级为主，并保留数值分数与有效场数，标明实际最近样本口径及本地计算来源。
+`summary` 不调用评分接口备选；原有雷达图 payload 与展示保持不变。
+只有总结图查询缓存键增加 `summaryGradeVersion`，确保旧版纯数值总结不会继续命中；
+其他查询的缓存键不变。
 
 ## 评分接口备选
 
