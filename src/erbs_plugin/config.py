@@ -6,6 +6,8 @@ from pathlib import Path
 
 from platformdirs import user_data_path
 
+from .summary_scope import SUMMARY_DEFAULT_LIMIT, SUMMARY_MINIMUM_SAMPLE
+
 
 def _default_query_cache_seconds() -> dict[str, int]:
     return {
@@ -61,6 +63,7 @@ class ERBSConfig:
     render_font_path: Path | None = None
     summary_art_path: Path | None = None
     summary_title: str | None = None
+    summary_match_limit: int | None = SUMMARY_DEFAULT_LIMIT
     download_render_assets: bool = True
     # Explicit legacy HTML renderer settings; unused by the default Skia renderer.
     browser_path: Path | None = None
@@ -95,6 +98,12 @@ class ERBSConfig:
             self.summary_art_path = Path(self.summary_art_path).expanduser()
         if self.summary_title is not None:
             self.summary_title = self.summary_title.strip() or None
+        if self.summary_match_limit is not None and (
+            isinstance(self.summary_match_limit, bool)
+            or not isinstance(self.summary_match_limit, int)
+            or self.summary_match_limit < SUMMARY_MINIMUM_SAMPLE
+        ):
+            raise ValueError("summary_match_limit must be an integer >= 20, or None")
         self.request_concurrency = max(1, self.request_concurrency)
         self.retry_count = max(0, self.retry_count)
         self.retry_backoff_seconds = max(0.0, self.retry_backoff_seconds)

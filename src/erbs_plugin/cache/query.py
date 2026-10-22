@@ -16,6 +16,8 @@ from typing import Any
 from ..models import CardPayload
 from ..scoring import AXES_VERSION, SCORING_VERSION
 from ..scoring.grades import SUMMARY_GRADE_VERSION
+from ..summary_art import SUMMARY_ART_VERSION
+from ..summary_scope import SUMMARY_DEFAULT_LIMIT, SUMMARY_SCOPE_VERSION
 
 _SCHEMA_VERSION = 1
 _CACHE_NOTICE = "缓存命中，数据可能不是最新"
@@ -37,6 +39,7 @@ def query_cache_spec(
     web_base_url: str = "https://dak.gg/er",
     ercraft_api_fallback: bool = False,
     ercraft_api_base_url: str = "https://api.ercraft.net",
+    summary_match_limit: int | None = SUMMARY_DEFAULT_LIMIT,
 ) -> dict[str, Any]:
     return {
         "queryVersion": "dak-desktop-v3",
@@ -57,6 +60,9 @@ def query_cache_spec(
         "ercraftApiFallback": ercraft_api_fallback,
         "ercraftApiBaseUrl": ercraft_api_base_url,
         **({"summaryGradeVersion": SUMMARY_GRADE_VERSION} if operation == "summary" else {}),
+        **({"summaryArtVersion": SUMMARY_ART_VERSION} if operation == "summary" else {}),
+        **({"summaryScopeVersion": SUMMARY_SCOPE_VERSION} if operation == "summary" else {}),
+        **({"summaryMatchLimit": summary_match_limit} if operation == "summary" else {}),
     }
 
 

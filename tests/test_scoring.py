@@ -81,6 +81,25 @@ def test_explicit_baseline_tier_allows_unknown_season_without_guessing_ladder() 
     assert result["baselineTierKey"] == "gold"
 
 
+def test_normal_fill_requires_opt_in_and_explicit_baseline_without_using_hidden_mmr() -> None:
+    normal = {
+        **REFERENCE["matches"][0]["raw"], "matchingMode": 2, "seasonId": 0,
+        "mmrAfter": 0, "mmrGain": 0,
+    }
+    assert score_match(normal, tier_key="gold")["score"] is None
+    assert score_match(normal, allow_normal=True)["score"] is None
+    actual = score_match(normal, tier_key="gold", allow_normal=True)
+    assert actual["score"] is not None
+    assert actual["baselineTierKey"] == "gold"
+    assert "preMatchRp" not in actual
+    assert score_match(
+        {**normal, "matchingMode": 4}, tier_key="gold", allow_normal=True,
+    )["score"] is None
+    assert score_match(
+        {**normal, "matchingTeamMode": 4}, tier_key="gold", allow_normal=True,
+    )["score"] is None
+
+
 def test_js_round_uses_positive_infinity_at_half_ties() -> None:
     assert js_round(2.5, 0) == 3
     assert js_round(-2.5, 0) == -2

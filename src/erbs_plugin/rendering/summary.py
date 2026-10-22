@@ -6,10 +6,11 @@ import math
 from collections.abc import Mapping
 from typing import Any
 
-from ..exceptions import RenderFailed
+from ..exceptions import AssetMissing, RenderFailed
 from ..models import CardPayload
 from ..scoring.axes import AXIS_ORDER
 from ..scoring.grades import summary_grade
+from .resources import is_summary_art_url
 
 PAPER = 0xFFFFFCF2
 INK = 0xFF323746
@@ -21,6 +22,17 @@ LABELS = ("生存", "交战", "运营", "支援", "结果", "稳定性")
 
 def _finite(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _count(value: object) -> int:
+    return int(value) if _finite(value) and value >= 0 and int(value) == value else 0
+
+
+def _background_image(sk: Any, path: Any) -> Any:
+    image = sk.Image.MakeFromEncoded(sk.Data.MakeWithCopy(path.read_bytes()))
+    if image is None or image.width() != 1024 or image.height() != 1536:
+        return None
+    return image.makeRasterImage()
 
 
 def render_summary(renderer: Any, payload: CardPayload) -> bytes:
@@ -64,14 +76,21 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
                         bold=True, width=width)
 
     art = renderer.config.summary_art_path
+    background = None
     if art is not None:
         try:
-            image = sk.Image.MakeFromEncoded(sk.Data.MakeWithCopy(art.read_bytes()))
+            background = _background_image(sk, art)
         except (OSError, ValueError, RuntimeError) as exc:
             raise RenderFailed(f"无法读取总结卡底图：{art}") from exc
-        if image is None or image.width() != 1024 or image.height() != 1536:
+        if background is None:
             raise RenderFailed("总结卡底图必须是可解码的 1024×1536 栅格图片")
-        canvas.drawImageRect(image.makeRasterImage(), sk.Rect.MakeWH(1024, 1536))
+    elif is_summary_art_url(source := section.get("summaryArtUrl")):
+        try:
+            background = _background_image(sk, renderer.assets.resolve_source(source))
+        except (AssetMissing, OSError, ValueError, RuntimeError):
+            background = None
+    if background is not None:
+        canvas.drawImageRect(background, sk.Rect.MakeWH(1024, 1536))
     else:
         # A missing optional illustration still produces a complete, usable card.
         canvas.drawRect(sk.Rect.MakeXYWH(21, 19, 982, 1498), renderer._paint(BORDER, stroke=2))
@@ -86,7 +105,6 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
             for radius in (230, 270, 300):
                 canvas.drawCircle(512, 550, radius, renderer._paint(0xFFE6DFD1, stroke=1))
             center(section.get("characterName") or "ETERNAL RETURN", 512, 560, 42, MUTED)
-            center("实战表现 · 六维档案", 512, 610, 21, MUTED)
 
     # Blade-like flourishes either side of the player name.
     for origin, sign in ((368, 1), (656, -1)):
@@ -96,26 +114,28 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
         diamond(origin - 7 * sign, 1142, 4, ACCENT)
     center(payload.title, 512, 1162, 30, width=280)
 
-    polygon([(346, 1177), (310, 1177), (327, 1192), (310, 1207), (354, 1207)], ACCENT, ACCENT)
-    polygon([(678, 1177), (714, 1177), (697, 1192), (714, 1207), (670, 1207)], ACCENT, ACCENT)
-    polygon([(352, 1171), (672, 1171), (686, 1191), (672, 1211),
-             (352, 1211), (338, 1191)], INK, ACCENT, 2)
-    line([(358, 1176), (667, 1176)], ACCENT)
-    line([(358, 1206), (667, 1206)], ACCENT)
-    diamond(367, 1191, 3, 0xFFEDCB8B)
-    diamond(657, 1191, 3, 0xFFEDCB8B)
-    center(renderer.config.summary_title or section.get("displayTitle") or "六维实战档案",
-           512, 1201, 26, 0xFFFFF0D0, width=250)
+    if renderer.config.summary_title:
+        polygon([(346, 1177), (310, 1177), (327, 1192), (310, 1207), (354, 1207)], ACCENT, ACCENT)
+        polygon([(678, 1177), (714, 1177), (697, 1192), (714, 1207), (670, 1207)], ACCENT, ACCENT)
+        polygon([(352, 1171), (672, 1171), (686, 1191), (672, 1211),
+                 (352, 1211), (338, 1191)], INK, ACCENT, 2)
+        line([(358, 1176), (667, 1176)], ACCENT)
+        line([(358, 1206), (667, 1206)], ACCENT)
+        diamond(367, 1191, 3, 0xFFEDCB8B)
+        diamond(657, 1191, 3, 0xFFEDCB8B)
+        center(renderer.config.summary_title, 512, 1201, 26, 0xFFFFF0D0, width=250)
 
-    polygon([(384, 1217), (639, 1217), (659, 1239), (639, 1261),
-             (384, 1261), (364, 1239)], 0xFFF7EAD8, ACCENT)
+    rp_offset = 0 if renderer.config.summary_title else -20
+    polygon([(384, 1217 + rp_offset), (639, 1217 + rp_offset), (659, 1239 + rp_offset),
+             (639, 1261 + rp_offset), (384, 1261 + rp_offset), (364, 1239 + rp_offset)],
+            0xFFF7EAD8, ACCENT)
     rp = section.get("rp")
     has_rp = _finite(rp) and rp >= 0
     tier_image = section.get("tierImageUrl")
     if tier_image:
-        renderer._image(canvas, tier_image, 377, 1215, 48, 48, background=0)
-    center(f"{rp:,.0f} RP" if has_rp else "RP 暂无数据", 539 if tier_image else 512,
-           1249, 29, width=220)
+        renderer._image(canvas, tier_image, 377, 1215 + rp_offset, 48, 48, background=0)
+    center(f"{rp:,.0f} RP" if has_rp else "— RP", 539 if tier_image else 512,
+           1249 + rp_offset, 29, width=220)
 
     for points in ([(137, 1277), (137, 1265), (176, 1265)],
                    [(848, 1265), (887, 1265), (887, 1277)],
@@ -145,15 +165,15 @@ def render_summary(renderer: Any, payload: CardPayload) -> bytes:
             diamond(x + w - 37, y + 49, 3, edge)
         center(LABELS[index], x + w / 2, y + 26, 20, 0xFF7F7061, width=w - 30)
         center(grade if ready else "—", x + w / 2, y + 59, 34, color, width=w - 50)
-        count = axis.get("sampleCount", 0)
-        center(f"{score:g} 分 · {count} 场" if ready else f"{count} 场 · 数据不足",
+        count = _count(axis.get("sampleCount"))
+        percentage = f"{score:.2f}".rstrip("0").rstrip(".") if ready else ""
+        center(f"{percentage}% · {count}场" if ready else f"{count}场",
                x + w / 2, y + 78, 12, 0xFF7F7061, width=w - 20)
 
-    # Keep the source/scope explicit; raw local scores are never presented as percentiles.
-    scope = section.get("scopeLabel", "最近对局")
-    center(f"{scope} · 本地评级", 512, 1495, 17, width=860)
-    cached = " · 缓存" if payload.footer.get("cached") else ""
-    center(f"数据 DAK.GG{cached} · 历史六维公式 v1.1", 512, 1513, 12, MUTED, width=900)
+    # The percentage is the local 0..100 score, never the payload's percentile.
+    total = (f"{_count(section.get('rankedCount'))} / {_count(section.get('rankedTotal'))} 场"
+             if section.get("truncated") is True else f"{_count(section.get('sampleSize'))}场")
+    center(total, 512, 1495, 17, width=860)
     encoded = surface.makeImageSnapshot().encodeToData(sk.kPNG, 100)
     if encoded is None:
         raise RenderFailed("总结卡 PNG 编码失败")

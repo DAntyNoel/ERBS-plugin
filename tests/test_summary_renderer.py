@@ -1,15 +1,49 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 
 import httpx
 import pytest
 
 from erbs_plugin import ERBSConfig, RenderFailed
+from erbs_plugin.assets import AssetManager
+from erbs_plugin.assets.manager import AssetEntry
 from erbs_plugin.models import CardPayload
 from erbs_plugin.rendering import SkiaCardRenderer
 
 skia = pytest.importorskip("skia")
+SUMMARY_ART_URL = "https://ercraft.net/assets/play-cards/67/10.webp"
+DAK_ART_URL = "https://cdn.dak.gg/selected-skin.png"
+
+
+def colored_image(width: int, height: int, color: int) -> bytes:
+    surface = skia.Surface(width, height)
+    surface.getCanvas().clear(color)
+    return bytes(surface.makeImageSnapshot().encodeToData())
+
+
+def cache_asset(directory, key: str, source: str, content: bytes) -> None:
+    manager = AssetManager(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{key}.png"
+    path.write_bytes(content)
+    entries = manager.load_manifest()
+    entries[key] = AssetEntry(
+        key=key, path=path.name, source=source,
+        sha256=hashlib.sha256(content).hexdigest(), size=len(content),
+        downloaded_at="2026-10-22T00:00:00+00:00",
+    )
+    manager.save_manifest(entries)
+
+
+def portrait_payload() -> CardPayload:
+    card = payload()
+    card.sections[0].update(
+        summaryArtUrl=SUMMARY_ART_URL, characterImageUrl=DAK_ART_URL,
+        skinName="热带次元 艾比盖尔",
+    )
+    return card
 
 
 def payload() -> CardPayload:
@@ -21,6 +55,7 @@ def payload() -> CardPayload:
             "displayTitle": "六维实战档案",
             "rp": 4445,
             "scopeLabel": "最近 20 场排位三排",
+            "sampleSize": 20,
             "axes": [
                 {"key": "survival", "score": 0, "sampleCount": 20},
                 {"key": "combat", "score": 75.25, "sampleCount": 18, "grade": "C"},
@@ -30,6 +65,7 @@ def payload() -> CardPayload:
                 {"key": "consistency", "score": float("nan"), "sampleCount": 1},
             ],
         },),
+        footer={"cached": True, "source": "DAK.GG"},
     )
 
 
@@ -54,11 +90,93 @@ async def test_summary_preserves_zero_missing_and_local_score_semantics(tmp_path
     image = skia.Image.MakeFromEncoded(png)
     assert (image.width(), image.height()) == (1024, 1536)
     assert "E" in labels and labels.count("S") == 2 and "A" in labels
-    assert "75.25 分 · 18 场" in labels and "0 分 · 20 场" in labels
+    assert "75.25% · 18场" in labels and "0% · 20场" in labels
     assert labels.count("—") == 2
-    assert "100 分 · 20 场" in labels and "1 场 · 数据不足" in labels
-    assert "最近 20 场排位三排 · 本地评级" in labels
+    assert "100% · 20场" in labels and "0场" in labels and "1场" in labels
+    assert "20场" in labels
+    assert not any(
+        word in text
+        for text in labels
+        for word in ("最近", "本地", "评级", "来源", "公式", "缓存", "DAK.GG", "六维", "数据不足")
+    )
     assert not any(text.startswith("P75") or text in {"SS", "SSS", "C"} for text in labels)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("truncated,sample_size,ranked_count,ranked_total,expected", [
+    (False, 216, 216, 216, "216场"),
+    (False, 20, 7, 7, "20场"),
+    (True, 500, 500, 1168, "500 / 1168 场"),
+])
+async def test_summary_displays_score_percentage_and_total_sample_count(
+    tmp_path, monkeypatch, truncated, sample_size, ranked_count, ranked_total, expected,
+):
+    card = payload()
+    card.sections[0].update(
+        truncated=truncated, sampleSize=sample_size,
+        rankedCount=ranked_count, rankedTotal=ranked_total,
+    )
+    card.sections[0]["axes"][0].update(score=68.41, percentile=99.9, sampleCount=215)
+    labels = []
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False,
+    )) as renderer:
+        original = renderer._label
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append(str(value))
+            return original(canvas, value, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        await renderer.render(card)
+
+    assert "68.41% · 215场" in labels
+    assert expected in labels
+    assert not any("99.9" in label or label.startswith("P") for label in labels)
+    assert card.sections[0]["axes"][0]["percentile"] == 99.9
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("summary_title,rp_y,tier_y,banner_color,frame_color", [
+    (None, 1229, 1195, (255, 0, 0, 255), (255, 0, 0, 255)),
+    ("冠军之路", 1249, 1215, (50, 55, 70, 255), (247, 234, 216, 255)),
+])
+async def test_summary_only_draws_title_band_when_explicitly_configured(
+    tmp_path, monkeypatch, summary_title, rp_y, tier_y, banner_color, frame_color,
+):
+    art = tmp_path / "background.png"
+    art.write_bytes(colored_image(1024, 1536, skia.ColorRED))
+    cache_asset(tmp_path, "tier", DAK_ART_URL, colored_image(16, 16, skia.ColorBLUE))
+    card = payload()
+    card.sections[0]["tierImageUrl"] = DAK_ART_URL
+    labels = []
+    tier_positions = []
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False,
+        summary_art_path=art, summary_title=summary_title,
+    )) as renderer:
+        original = renderer._label
+        original_image = renderer._image
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append((str(value), args[1]))
+            return original(canvas, value, *args, **kwargs)
+
+        def record_image(canvas, source, x, y, *args, **kwargs):
+            if source == DAK_ART_URL:
+                tier_positions.append(y)
+            return original_image(canvas, source, x, y, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        monkeypatch.setattr(renderer, "_image", record_image)
+        image = skia.Image.MakeFromEncoded(await renderer.render(card))
+    assert (("冠军之路", 1201) in labels) is bool(summary_title)
+    assert not any(label == "六维实战档案" for label, _ in labels)
+    assert ("4,445 RP", rp_y) in labels
+    assert tier_positions == [tier_y]
+    pixels = image.toarray(colorType=skia.kRGBA_8888_ColorType)
+    assert tuple(pixels[1185, 400]) == banner_color
+    assert tuple(pixels[1248, 450]) == frame_color
 
 
 @pytest.mark.asyncio
@@ -81,3 +199,84 @@ async def test_summary_uses_explicit_local_art_and_render_scale(tmp_path):
     async with SkiaCardRenderer(config) as renderer:
         with pytest.raises(RenderFailed, match="1024×1536"):
             await renderer.render(payload())
+
+
+@pytest.mark.asyncio
+async def test_summary_uses_complete_cached_ercraft_background_and_keeps_labels_clean(
+    tmp_path, monkeypatch,
+):
+    cache_asset(tmp_path, "card", SUMMARY_ART_URL, colored_image(1024, 1536, skia.ColorRED))
+    cache_asset(tmp_path, "dak", DAK_ART_URL, colored_image(16, 16, skia.ColorBLUE))
+    labels = []
+
+    async def get(*args, **kwargs):
+        raise AssertionError("cached summary assets must not request the network")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", get)
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False,
+    )) as renderer:
+        original = renderer._label
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append(str(value))
+            return original(canvas, value, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        image = skia.Image.MakeFromEncoded(await renderer.render(portrait_payload()))
+
+    pixels = image.toarray(colorType=skia.kRGBA_8888_ColorType)
+    assert tuple(pixels[10, 10]) == (255, 0, 0, 255)
+    assert tuple(pixels[500, 500]) == (255, 0, 0, 255)
+    assert "热带次元 艾比盖尔" not in labels
+    assert not any("ERCraft" in label or "DAK.GG" in label for label in labels)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_asset", ["bytes", "dimensions", "missing"])
+async def test_invalid_cached_ercraft_card_falls_back_to_selected_dak_skin(
+    tmp_path, monkeypatch, bad_asset,
+):
+    if bad_asset != "missing":
+        content = (b"invalid image" if bad_asset == "bytes"
+                   else colored_image(32, 32, skia.ColorRED))
+        cache_asset(tmp_path, "card", SUMMARY_ART_URL, content)
+    cache_asset(tmp_path, "dak", DAK_ART_URL, colored_image(16, 16, skia.ColorBLUE))
+    labels = []
+    async with SkiaCardRenderer(ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False,
+    )) as renderer:
+        original = renderer._label
+
+        def record(canvas, value, *args, **kwargs):
+            labels.append(str(value))
+            return original(canvas, value, *args, **kwargs)
+
+        monkeypatch.setattr(renderer, "_label", record)
+        image = skia.Image.MakeFromEncoded(await renderer.render(portrait_payload()))
+
+    pixels = image.toarray(colorType=skia.kRGBA_8888_ColorType)
+    assert tuple(pixels[500, 500]) == (0, 0, 255, 255)
+    assert "热带次元 艾比盖尔" not in labels
+    assert not any("卡面 ERCraft" in label for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_explicit_art_overrides_cached_ercraft_card_and_keeps_strict_errors(tmp_path):
+    cache_asset(tmp_path, "card", SUMMARY_ART_URL, colored_image(1024, 1536, skia.ColorBLUE))
+    art = tmp_path / "explicit.png"
+    art.write_bytes(colored_image(1024, 1536, skia.ColorRED))
+    config = ERBSConfig(
+        asset_directory=tmp_path, download_render_assets=False, summary_art_path=art,
+    )
+    async with SkiaCardRenderer(config) as renderer:
+        image = skia.Image.MakeFromEncoded(await renderer.render(portrait_payload()))
+    assert tuple(image.toarray(colorType=skia.kRGBA_8888_ColorType)[500, 500]) == (255, 0, 0, 255)
+
+    art.write_bytes(colored_image(32, 32, skia.ColorRED))
+    async with SkiaCardRenderer(config) as renderer:
+        with pytest.raises(RenderFailed, match="1024×1536"):
+            await renderer.render(portrait_payload())
+    async with SkiaCardRenderer(replace(config, summary_art_path=tmp_path / "missing")) as renderer:
+        with pytest.raises(RenderFailed, match="无法读取总结卡底图"):
+            await renderer.render(portrait_payload())

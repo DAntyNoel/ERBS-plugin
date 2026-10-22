@@ -14,6 +14,7 @@ from .config import ERBSConfig
 from .models import CardPayload
 from .radar import RadarDimensionScore, RadarProfile, build_radar_section
 from .rendering import CardRenderer, SkiaCardRenderer
+from .summary_art import select_summary_art
 
 
 @dataclass(frozen=True, slots=True)
@@ -1075,6 +1076,7 @@ async def render_query_preview(
         web_base_url=active_config.web_base_url,
         ercraft_api_fallback=active_config.ercraft_api_fallback,
         ercraft_api_base_url=active_config.ercraft_api_base_url,
+        summary_match_limit=active_config.summary_match_limit,
     )
     digest = hashlib.sha256(
         json.dumps(spec, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1109,6 +1111,7 @@ async def render_query_preview(
             )
             payload = annotate_query_payload(payload)
             await query_database.set(spec, payload, ttl=cache_ttl)
+        payload = select_summary_art(payload)
         result = await _render_output(
             payload,
             format=format,

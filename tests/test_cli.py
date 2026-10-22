@@ -126,7 +126,7 @@ def test_summary_cli_passes_art_and_display_title_only_as_render_config(monkeypa
     monkeypatch.setattr(cli_module, "query", fake_query)
     args = cli_module.parser().parse_args(
         ["summary", "player", "--season", "41", "--art", "illustration.png",
-         "--card-title", "自定义称号"]
+         "--card-title", "自定义称号", "--max-matches", "1000"]
     )
 
     assert asyncio.run(cli_module.run(args)) == 0
@@ -135,6 +135,13 @@ def test_summary_cli_passes_art_and_display_title_only_as_render_config(monkeypa
     config = seen["config"]
     assert config.summary_art_path == Path("illustration.png")
     assert config.summary_title == "自定义称号"
+    assert config.summary_match_limit == 1000
+
+
+def test_cli_rejects_summary_limit_below_fill_target(capsys) -> None:
+    args = cli_module.parser().parse_args(["summary", "player", "--max-matches", "19"])
+    assert asyncio.run(cli_module.run(args)) == cli_module.EXIT_USAGE
+    assert "--max-matches must be at least 20" in capsys.readouterr().err
 
 
 def test_cli_rejects_invalid_output_combination(capsys) -> None:

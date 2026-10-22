@@ -18,6 +18,7 @@ from .exceptions import InvalidQuery
 from .models import CardPayload
 from .rendering import CardRenderer, SkiaCardRenderer, TextRenderer
 from .services import ERBSService
+from .summary_art import select_summary_art
 
 type OutputFormat = Literal["json", "bytes", "path"]
 type QueryOutput = str | bytes | Path
@@ -163,7 +164,7 @@ async def _render_output(
     if format == "json":
         if output is not None:
             raise InvalidQuery("output is only supported when format='path'")
-        return TextRenderer().render(payload)
+        return TextRenderer().render(select_summary_art(payload))
     if format not in {"bytes", "path"}:
         raise InvalidQuery(f"unsupported output format: {format}")
     if format == "bytes" and output is not None:
@@ -174,7 +175,7 @@ async def _render_output(
     owned_renderer = renderer is None
     active_renderer = renderer or SkiaCardRenderer(config)
     try:
-        image = await active_renderer.render(payload)
+        image = await active_renderer.render(select_summary_art(payload))
     finally:
         if owned_renderer:
             await active_renderer.close()
@@ -313,6 +314,7 @@ async def query(
             web_base_url=active_config.web_base_url,
             ercraft_api_fallback=active_config.ercraft_api_fallback,
             ercraft_api_base_url=active_config.ercraft_api_base_url,
+            summary_match_limit=active_config.summary_match_limit,
         )
         payload = await query_database.get(cache_spec)
 

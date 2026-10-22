@@ -52,25 +52,51 @@ retained for compatibility.
 ## Illustrated player summary
 
 The portrait summary follows ERCraft's illustrated card layout and uses the existing local
-six-axis calculation. Generate a card from the most recent 20 ranked squad games:
+six-axis calculation. The sample includes ranked squad games from the current season, up to
+500 newest games by default (the whole season when there are at most 500);
+when there are fewer than 20, recent normal squad games from that season fill it to 20:
 
 ```bash
 erbs summary dantynoel --format path --output ./summary.png
-erbs summary dantynoel --count 40 --art ./illustration.png \
+erbs summary dantynoel --art ./illustration.png \
   --card-title "六维实战档案" --format path --output ./summary-custom.png
 ```
 
-`--count` accepts 1–60 games. `--season` selects a DAK season; otherwise the sample uses the
-profile's current season. The card labels the actual recent-match sample and displays each
-axis's local letter grade, numeric score and eligible game count. Grades use fixed score bands:
+`--count` remains accepted (1–60) for compatibility and no longer changes the sample scope.
+`--season` selects a DAK season; otherwise the sample uses DAK's current season, including
+players with no ranked games this season. `--max-matches` sets the ranked cap (at least 20).
+In Python use `ERBSConfig(summary_match_limit=1000)` to change it, or `None` for no cap.
+Samples are not limited by the old `--count` range of 1–60.
+Normal games only fill the gap to 20; if fewer games are available, the card keeps the real
+count. JSON records `rankedCount`, `rankedTotal`, `normalCount`, and `truncated` so a capped
+sample is never represented as the whole season. The clean card displays each axis's local
+letter grade, score as a percentage and eligible game count. This percentage is a local
+0–100 score, not a population percentile. Grades use fixed score bands:
 S ≥70, A ≥55, B ≥40, C ≥25, D ≥10, otherwise E. These are local display bands
 (`gradeVersion=local-six-axis-bands.v1`), independent of ERCraft's website grades and population
 percentiles. Missing or invalid scores have no grade. The summary never uses the optional ERCraft
 API fallback.
 
+Normal fill games use the player's selected-season ranked tier as their local scoring baseline;
+unranked players use the iron baseline. This policy is recorded in the JSON payload. Normal
+matchmaking MMR is not treated as ranked RP. Existing ranked and radar scoring behavior is unchanged.
+
+The default 500-game cap follows a local service-to-PNG benchmark: four runs with empty local
+HTTP/asset caches took 8.00–11.61 seconds at 500 games and 17.85–20.83 seconds at 1,000.
+Warm runs took about 0.16–0.21 and 0.21–0.28 seconds respectively. This excludes QQ
+upload; network/CDN times vary. Reproduce with `python scripts/benchmark_summary.py --output DIR`.
+
 `--art` requires a decodable local raster background image with exactly 1024×1536 pixels.
-Without it, the renderer uses the most-played character from the sampled games and cached DAK
-artwork. `--card-title` changes only the displayed title. In Python, use
+Without it, each render draws a character with probability proportional to its play count in the
+selected season's ranked squad overview, falling back to recent sampled games when that overview
+is unavailable. It then draws from the character's publicly recorded used skins: Epic (heroic,
+purple, DAK `grade=4`) skins have weight 10 and other skins have weight 1. Skin usage counts do
+not multiply those weights. Missing skin evidence falls back to the base skin. These records
+are not a complete owned-skin inventory. Exact base and first-pick skin matches use verified
+ERCraft illustrated cards; other skins, or unavailable card assets, use the selected skin's DAK
+artwork. Selected artwork is cached locally; each generation draws again even when query data
+comes from cache. `--card-title` changes only the displayed title.
+In Python, use
 `ERBSConfig(summary_art_path=Path("illustration.png"), summary_title="六维实战档案")`.
 Both settings default to `None` and do not change the scoring data or query-cache identity.
 
@@ -82,7 +108,8 @@ json_text = await query("summary", "dantynoel", count=20)
 ```
 
 Summary results have an independent 180-second cache and do not reuse radar payloads.
-Its cache key includes the local grade version so earlier numeric-only summaries are regenerated.
+Its cache key includes sample scope, local grade and art selection versions so earlier summaries
+are regenerated.
 
 ## Python API
 

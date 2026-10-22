@@ -16,11 +16,14 @@ def _read(match: Mapping[str, object], *keys: str) -> float | None:
     return None
 
 
-def score_match(match: Mapping[str, object], *, tier_key: str | None = None) -> dict[str, Any]:
+def score_match(
+    match: Mapping[str, object], *, tier_key: str | None = None, allow_normal: bool = False,
+) -> dict[str, Any]:
     """Score a ranked squad record; explicit tier_key is the pre-match baseline tier.
 
     Automatic RP classification covers verified DAK season IDs 39 (S11) and 41 (S12).
     Unknown seasons need an explicit tier; a future ladder must not be silently assumed.
+    Normal squad games require both allow_normal and an explicit baseline tier.
     """
     result: dict[str, Any] = {
         "version": SCORING_VERSION,
@@ -36,7 +39,8 @@ def score_match(match: Mapping[str, object], *, tier_key: str | None = None) -> 
 
     mode = match.get("matchingMode")
     team_mode = match.get("matchingTeamMode", match.get("teamMode"))
-    if mode not in (3, "RANK") or team_mode not in (3, "SQUAD"):
+    normal = allow_normal and tier_key is not None and mode in (2, "NORMAL")
+    if (mode not in (3, "RANK") and not normal) or team_mode not in (3, "SQUAD"):
         return missing("unsupported-or-missing-mode")
     if tier_key is None:
         if match.get("seasonId") not in (39, 41):

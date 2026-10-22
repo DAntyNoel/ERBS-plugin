@@ -172,8 +172,12 @@ def parser() -> argparse.ArgumentParser:
     radar = _add_player_command(subparsers, "radar", "six-axis player performance radar")
     radar.add_argument("--count", type=int, default=20)
     summary = _add_player_command(subparsers, "summary", "illustrated local performance summary")
-    summary.add_argument("--count", type=int, default=20)
+    summary.add_argument(
+        "--count", type=int, default=20,
+        help="compatibility option (1-60); all season ranked games are always used, filled to 20",
+    )
     summary.add_argument("--season")
+    summary.add_argument("--max-matches", type=int, help="season ranked sample cap (default: 500)")
     summary.add_argument("--art", type=Path, help="local 1024x1536 raster background image")
     summary.add_argument("--card-title", help="display title; does not affect scores")
     _add_player_command(subparsers, "characters", "player character statistics")
@@ -222,6 +226,10 @@ def _config(args: argparse.Namespace) -> ERBSConfig:
         values["summary_art_path"] = args.art
     if getattr(args, "card_title", None) is not None:
         values["summary_title"] = args.card_title
+    if getattr(args, "max_matches", None) is not None:
+        if args.max_matches < 20:
+            raise InvalidQuery("--max-matches must be at least 20")
+        values["summary_match_limit"] = args.max_matches
     values["web_base_url"] = args.web_base_url
     if getattr(args, "asset_directory", None) is not None:
         values["asset_directory"] = args.asset_directory

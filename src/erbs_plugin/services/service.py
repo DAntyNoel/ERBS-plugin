@@ -16,7 +16,11 @@ from ..radar import RadarDataSource, RadarProfile, RadarSample, RadarScorer, bui
 from ..radar.scoring import published_profile
 from ..scoring import score_match
 from ..scoring.grades import SUMMARY_GRADE_VERSION, summary_grade
+from ..summary_art import SUMMARY_ART_VERSION
+from ..summary_scope import SUMMARY_MINIMUM_SAMPLE, SUMMARY_SCOPE_VERSION
 from .dak_queries import DakQueryMixin
+from .summary_art import build_summary_art_candidates
+from .summary_data import fetch_summary_sample
 
 _MMR_CHART_MATCH_COUNT = 20
 _TIER_NAMES = {
@@ -223,7 +227,10 @@ class ERBSService(DakQueryMixin):
     async def player_summary(
         self, nickname: str, *, count: int = 20, season: str | None = None
     ) -> CardPayload:
-        """Build an illustrated recent-match summary using local scores only."""
+        """Score season ranked games up to the cap, filling samples below 20 with normal games.
+
+        ``count`` is accepted for compatibility; it no longer limits the season sample.
+        """
         if not 1 <= count <= 60:
             raise InvalidQuery("总结图样本数量必须在 1 到 60 之间")
         if not nickname.strip():
@@ -248,6 +255,10 @@ class ERBSService(DakQueryMixin):
             )
             if selected_season is None or not selected_season.get("key"):
                 raise InvalidQuery(f"未找到赛季：{season}")
+        else:
+            selected_season = next(
+                (row for row in seasons if row.get("isCurrent") is True), None,
+            )
         profile = await self.profile(
             nickname, season=str(selected_season["key"]) if selected_season else None
         )
@@ -282,44 +293,39 @@ class ERBSService(DakQueryMixin):
             tier_grade_id=_optional_integer(current.get("tierGradeId")),
             tier_mmr=_optional_integer(current.get("tierMmr")),
         )
-        sample = await RadarDataSource(self.client).fetch(
-            profile.nickname, count=count, season=str(selected_season["key"]),
-            season_id=season_id,
+        sample = await fetch_summary_sample(
+            self.client, profile.nickname, season=str(selected_season["key"]),
+            season_id=season_id, max_ranked_matches=self.client.config.summary_match_limit,
         )
         if not sample.matches:
-            raise InvalidQuery("没有可用于总结图的排位三排记录")
-        scored = RadarScorer().score(sample)
+            raise InvalidQuery("没有可用于总结图的本赛季排位或普通匹配三排记录")
+        ranked_count = sum(row.get("matchingMode") in (3, "3") for row in sample.matches)
+        normal_count = len(sample.matches) - ranked_count
+        season_label = "本赛季" if season is None else str(
+            selected_season.get("name") or selected_season["key"]
+        )
+        scope_label = f"{season_label}全部排位 {ranked_count} 场"
+        if sample.truncated:
+            scope_label = f"{season_label}最近 {ranked_count} 场排位"
+            if sample.ranked_total is not None:
+                scope_label += f"（共 {sample.ranked_total} 场）"
+        if normal_count:
+            scope_label += f" + 匹配 {normal_count} 场"
+        if len(sample.matches) < SUMMARY_MINIMUM_SAMPLE:
+            scope_label += "（不足 20 场）"
+        normal_tier = {
+            1: "iron", 2: "bronze", 3: "silver", 4: "gold", 5: "platinum",
+            6: "diamond_plus", 63: "meteorite_plus", 66: "mithril_plus",
+            7: "mithril_plus", 8: "mithril_plus",
+        }.get(profile.tier_id, "iron")
+        scored = RadarScorer().score(sample, normal_tier_key=normal_tier)
         radar = build_radar_section(scored)
         rank = self._rank_section(profile)
-        character_counts = Counter(
-            character_id for item in sample.matches
-            if (character_id := _optional_integer(item.get("characterNum")))
+        art_candidates, art_source = build_summary_art_candidates(
+            profile.raw, metadata, sample.matches, season_id,
         )
-        character_id = character_counts.most_common(1)[0][0] if character_counts else None
-        character = next(
-            (
-                item for item in metadata.get("characters") or ()
-                if character_id is not None and isinstance(item, Mapping)
-                and _optional_integer(item.get("id")) == character_id
-            ),
-            {},
-        )
-        skin_code = next(
-            (
-                _optional_integer(item.get("skinCode")) for item in sample.matches
-                if _optional_integer(item.get("characterNum")) == character_id
-                and item.get("skinCode")
-            ),
-            None,
-        )
-        skin = next(
-            (
-                item for item in character.get("skins") or ()
-                if skin_code is not None and isinstance(item, Mapping)
-                and _optional_integer(item.get("id")) == skin_code
-            ),
-            {},
-        )
+        character = max(art_candidates, key=lambda item: item["weight"], default={})
+        skin = max(character.get("skins", ()), key=lambda item: item["weight"], default={})
         section = {
             "type": "player-summary",
             "axes": [
@@ -330,19 +336,31 @@ class ERBSService(DakQueryMixin):
             "gradeVersion": SUMMARY_GRADE_VERSION,
             "sampleSize": scored.sample_size,
             "requestedCount": count,
+            "minimumSampleSize": SUMMARY_MINIMUM_SAMPLE,
+            "rankedCount": ranked_count,
+            "rankedTotal": sample.ranked_total,
+            "rankedLimit": self.client.config.summary_match_limit,
+            "truncated": sample.truncated,
+            "normalCount": normal_count,
+            "normalBaselineTier": normal_tier if normal_count else None,
+            "normalBaselineSource": (
+                "赛季段位" if profile.tier_id else "未定级按铁阎基准"
+            ) if normal_count else None,
+            "sampleScopeVersion": SUMMARY_SCOPE_VERSION,
             "source": "local",
             "sourceLabel": "本地计算",
             "formulaVersion": scored.calibration_version,
-            "scopeLabel": f"最近 {scored.sample_size} 场排位三排",
+            "scopeLabel": scope_label,
             "seasonId": profile.season_id,
             "rp": rp,
             "tierName": rank["tierName"],
             "tierImageUrl": rank.get("imageUrl"),
-            "characterId": character_id,
-            "characterName": character.get("name")
-            or (f"实验体 {character_id}" if character_id is not None else None),
-            "characterImageUrl": skin.get("fullImageUrl") or skin.get("imageUrl")
-            or character.get("imageUrl") or character.get("communityImageUrl"),
+            "characterId": character.get("characterId"),
+            "characterName": character.get("characterName"),
+            "characterImageUrl": skin.get("characterImageUrl"),
+            "artCandidates": art_candidates,
+            "artSelectionVersion": SUMMARY_ART_VERSION,
+            "artSelectionSource": art_source,
             "displayTitle": "六维实战档案",
         }
         return CardPayload(

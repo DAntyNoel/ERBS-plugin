@@ -17,6 +17,7 @@ from ..assets import AssetManager
 from ..config import ERBSConfig
 from ..exceptions import AssetMissing, RenderFailed
 from ..models import CardPayload
+from ..summary_art import select_summary_art
 from .resources import prepare_assets
 
 BG = 0xFFF3F5F8
@@ -66,6 +67,7 @@ class SkiaCardRenderer:
     async def render(self, payload: CardPayload) -> bytes:
         async with self._lock:
             try:
+                payload = select_summary_art(payload)
                 self.assets = await prepare_assets(asdict(payload), self.config)
                 manifest = self.assets.manifest_path
                 revision = (

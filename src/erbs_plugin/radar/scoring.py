@@ -49,9 +49,15 @@ class RadarScorer:
     """Local ERCraft production-analysis-axes.v1.1, including its aggregation rules."""
 
     def score(
-        self, sample: RadarSample, *, scope: str = "overall", tier_key: str | None = None
+        self, sample: RadarSample, *, scope: str = "overall", tier_key: str | None = None,
+        normal_tier_key: str | None = None,
     ) -> RadarProfile:
-        results = tuple(score_match(match, tier_key=tier_key) for match in sample.matches)
+        results = tuple(
+            score_match(match, tier_key=normal_tier_key, allow_normal=True)
+            if normal_tier_key is not None and match.get("matchingMode") in (2, "NORMAL")
+            else score_match(match, tier_key=tier_key)
+            for match in sample.matches
+        )
         analysis = build_production_axes(results, scope=scope)
         eligible = [result for result in results if result["score"] is not None]
         complete = [r for r in eligible if not r["roleScoreDetail"]["missingMetrics"]]

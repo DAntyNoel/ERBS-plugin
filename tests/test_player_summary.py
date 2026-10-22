@@ -36,8 +36,10 @@ async def test_summary_uses_profile_season_local_scores_and_real_sample_counts()
             })
         if request.url.path.endswith("/matches"):
             assert request.url.params["season"] == "SEASON_12"
-            assert request.url.params["matchingMode"] == "RANK"
             assert request.url.params["teamMode"] == "SQUAD"
+            if request.url.params["matchingMode"] == "NORMAL":
+                return httpx.Response(200, json={"matches": []})
+            assert request.url.params["matchingMode"] == "RANK"
             return httpx.Response(200, json={"matches": [
                 reference_match(1),
                 {**reference_match(2), "seasonId": 39},
@@ -66,7 +68,9 @@ async def test_summary_uses_profile_season_local_scores_and_real_sample_counts()
     assert section["type"] == "player-summary"
     assert section["sampleSize"] == 2
     assert section["requestedCount"] == 20
-    assert section["scopeLabel"] == "最近 2 场排位三排"
+    assert section["scopeLabel"] == "本赛季全部排位 2 场（不足 20 场）"
+    assert section["rankedCount"] == 2
+    assert section["normalCount"] == 0
     assert section["source"] == "local"
     assert section["sourceLabel"] == "本地计算"
     assert section["formulaVersion"] == AXES_VERSION
@@ -87,7 +91,7 @@ async def test_summary_uses_profile_season_local_scores_and_real_sample_counts()
     assert section["axes"][-1]["grade"] == "S"
     assert section["axes"][-1]["sampleCount"] == 2
     assert card.footer["scoringSource"] == "local"
-    assert len(requests) == 4
+    assert len(requests) == 5
 
 
 @pytest.mark.asyncio
@@ -150,6 +154,7 @@ def test_summary_display_config_defaults_and_normalization() -> None:
     default = ERBSConfig()
     assert default.summary_art_path is None
     assert default.summary_title is None
+    assert default.summary_match_limit == 500
     config = ERBSConfig(summary_art_path="illustration.png", summary_title="  实战档案  ")
     assert config.summary_art_path == Path("illustration.png")
     assert config.summary_title == "实战档案"
@@ -265,3 +270,81 @@ async def test_season_filter_is_optional_and_deduplicates_matching_pages() -> No
     assert [row["gameId"] for row in filtered.matches] == [1]
     assert len(unfiltered.matches) == 2
     assert [call.get("season") for call in calls] == ["SEASON_12", "SEASON_12", None]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ranked_count", [0, 7, 19, 20, 21, 85, 500, 501])
+async def test_summary_scores_every_current_season_ranked_game_and_fills_only_below_20(
+    ranked_count: int,
+) -> None:
+    calls: list[tuple[str, int]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/data/seasons"):
+            return httpx.Response(200, json={"seasons": [
+                {"id": 39, "key": "SEASON_11"},
+                {"id": 41, "key": "SEASON_12", "isCurrent": True},
+            ]})
+        if request.url.path.endswith("/profile"):
+            assert request.url.params["season"] == "SEASON_12"
+            return httpx.Response(200, json={
+                "player": {"name": "Kanami"},
+                "playerSeasons": [
+                    {"seasonId": 39, "mmr": 9000},
+                    *([{"seasonId": 41, "mmr": 0}] if ranked_count else []),
+                ],
+            })
+        if request.url.path.endswith("/data/characters"):
+            return httpx.Response(200, json={"characters": []})
+        if request.url.path.endswith("/matches"):
+            assert request.url.params["season"] == "SEASON_12"
+            mode, page = request.url.params["matchingMode"], int(request.url.params["page"])
+            calls.append((mode, page))
+            total = ranked_count if mode == "RANK" else 50
+            rows = [
+                {**reference_match(i + (1000 if mode == "NORMAL" else 0)),
+                 "matchingMode": 3 if mode == "RANK" else 2,
+                 "seasonId": 41 if mode == "RANK" else 0,
+                 **({"mmrAfter": 0, "mmrGain": 0} if mode == "NORMAL" else {})}
+                for i in range((page - 1) * 20 + 1, min(page * 20, total) + 1)
+            ]
+            return httpx.Response(200, json={
+                "meta": {"season": "SEASON_12", "count": total}, "matches": rows,
+            })
+        raise AssertionError(request.url)
+
+    async with AsyncERBSClient(transport=httpx.MockTransport(handler)) as client:
+        # The legacy count must never truncate all-season ranked data or change the fill target.
+        card = await ERBSService(client).player_summary("Kanami", count=5)
+
+    section, = card.sections
+    assert section["seasonId"] == 41
+    assert section["rp"] == (0 if ranked_count else None)
+    assert section["sampleSize"] == min(500, max(20, ranked_count))
+    assert section["rankedCount"] == min(500, ranked_count)
+    assert section["rankedTotal"] == ranked_count
+    assert section["truncated"] is (ranked_count > 500)
+    assert section["normalCount"] == max(0, 20 - ranked_count)
+    assert section["normalBaselineTier"] == ("iron" if ranked_count < 20 else None)
+    assert all(
+        axis["sampleCount"] == min(500, max(20, ranked_count)) for axis in section["axes"]
+    )
+    if ranked_count > 500:
+        assert section["scopeLabel"] == f"本赛季最近 500 场排位（共 {ranked_count} 场）"
+    else:
+        assert section["scopeLabel"] == (
+            f"本赛季全部排位 {ranked_count} 场"
+            + (f" + 匹配 {20 - ranked_count} 场" if ranked_count < 20 else "")
+        )
+    assert ("NORMAL", 1) in calls if ranked_count < 20 else all(
+        mode == "RANK" for mode, _ in calls
+    )
+    assert len([mode for mode, _ in calls if mode == "RANK"]) == max(
+        1, (min(500, ranked_count) + 19) // 20,
+    )
+
+
+@pytest.mark.parametrize("limit", [0, 19, True, 20.5, "500"])
+def test_summary_config_rejects_invalid_limit(limit: object) -> None:
+    with pytest.raises(ValueError, match="summary_match_limit"):
+        ERBSConfig(summary_match_limit=limit)

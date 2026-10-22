@@ -45,16 +45,20 @@ erbs overview playername --format bytes > player.png
 
 ## 插画总结图
 
-`summary` 参考 ERCraft 的竖版插画卡布局，复用插件已有的本地六维评分，默认取当前赛季最近 20 场排位三排：
+`summary` 参考 ERCraft 的竖版插画卡布局，复用插件已有的本地六维评分。默认统计本赛季排位三排，上限 500 场；不超过上限时统计全部，超过时取最近 500 场。排位不足 20 场时，用本赛季最近的普通匹配三排补足 20 场：
 
 ```bash
 erbs summary dantynoel --format path --output ./summary.png
-erbs summary dantynoel --count 40 --art ./illustration.png --card-title "六维实战档案" --format path --output ./summary-custom.png
+erbs summary dantynoel --art ./illustration.png --card-title "六维实战档案" --format path --output ./summary-custom.png
 ```
 
-`--count` 支持 1–60 场，`--season` 可指定 DAK 赛季。未指定赛季时，对局样本与玩家资料的当前赛季保持一致。图中标注实际取到的最近场数，每个维度显示本地字母等级、数值分数与有效样本数。等级使用固定分数区间：S ≥70、A ≥55、B ≥40、C ≥25、D ≥10，其余有效分数为 E。此规则版本为 `local-six-axis-bands.v1`，属于本地显示规则，与 ERCraft 网站等级及人群百分位独立；缺失或无效分数不授予等级。最近对局不会标作赛季全部数据。即使启用了雷达图的 ERCraft API 备选，总结图仍仅使用本地评分。
+`--count` 为兼容旧调用仍接受 1–60，但不再改变统计范围。`--season` 可指定 DAK 赛季；默认使用 DAK 标记的当前赛季，即使本赛季没有排位也不会回退到旧赛季。排位记录逐页读取并去重；`--max-matches` 可调整上限（至少 20），Python 对应 `ERBSConfig(summary_match_limit=1000)`，设为 `None` 可解除上限。匹配只补足至 20 场，两者合计仍不足时保留真实场数。JSON 中的 `rankedCount`、`rankedTotal`、`normalCount`、`truncated` 明确记录样本组成与截断状态。图中只保留简洁的评级、百分数和场数；百分数为本地 0–100 分数，与人群百分位无关。等级使用固定分数区间：S ≥70、A ≥55、B ≥40、C ≥25、D ≥10，其余有效分数为 E。此规则版本为 `local-six-axis-bands.v1`，属于本地显示规则，与 ERCraft 网站等级及人群百分位独立；缺失或无效分数不授予等级。即使启用了雷达图的 ERCraft API 备选，总结图仍仅使用本地评分。
 
-`--art` 要求本机可解码的栅格底图，尺寸必须为 1024×1536 像素；未指定时使用样本中最常玩的实验体及已缓存的 DAK 素材。`--card-title` 只修改显示称号。Python 对应配置为 `ERBSConfig(summary_art_path=Path("illustration.png"), summary_title="六维实战档案")`，两项默认均为 `None`，不影响评分或查询缓存。
+500 场上限来自本机真实取数到 PNG 的基准：500 场四次无本地缓存为 8.00–11.61 秒，1,000 场为 17.85–20.83 秒；热缓存分别约 0.16–0.21、0.21–0.28 秒，不含 QQ 上传发送。网络和 CDN 耗时会波动。可用 `python scripts/benchmark_summary.py --output 目录` 复测。
+
+普通匹配补样按玩家所选赛季的排位段位选择本地评分基准；未定级玩家使用铁阎基准，依据写入 JSON 的 `normalBaselineTier` 与 `normalBaselineSource`。匹配隐藏分不会被当作排位 RP。此兼容只在总结图中启用，原排位逐局评分及雷达图行为保持不变。
+
+`--art` 要求本机可解码的栅格底图，尺寸必须为 1024×1536 像素。未指定时，每次生成按本赛季排位三排的角色使用场次加权抽取角色；无排位时按已采集的同赛季匹配记录降级。皮肤候选取该角色公开记录中使用过的皮肤，英雄（紫色，DAK `grade=4`）权重为 10，其余为 1；皮肤使用次数不再乘入权重，无有效皮肤记录时使用基础皮肤。这些记录不是完整的玩家皮肤库存。基础皮肤与已核验的首选皮肤优先采用 ERCraft 插画卡面，其他皮肤或卡面无法加载时使用对应皮肤的 DAK 图片。素材按需缓存，但命中查询缓存仍会重新抽图。`--card-title` 只修改显示称号。Python 对应配置为 `ERBSConfig(summary_art_path=Path("illustration.png"), summary_title="六维实战档案")`，两项默认均为 `None`，不影响评分或查询缓存。
 
 ```python
 from erbs_plugin import player_summary, query
@@ -63,7 +67,7 @@ png_path = await player_summary("dantynoel", format="path", output="summary.png"
 json_text = await query("summary", "dantynoel", count=20)
 ```
 
-总结图使用独立的 180 秒查询缓存，缓存键包含本地等级版本，旧版纯数值总结会重新生成，不会复用已有雷达图缓存。六维数值公式及雷达图展示保持原有行为。
+总结图使用独立的 180 秒查询缓存，缓存键包含采样范围、本地等级与头图抽取版本，旧版最近 20 场总结会重新查询，不会复用已有雷达图缓存。六维数值公式及雷达图展示保持原有行为。
 
 ## Python API
 
