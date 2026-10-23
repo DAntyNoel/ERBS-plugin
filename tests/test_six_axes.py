@@ -9,7 +9,7 @@ from erbs_plugin import build_production_axes, score_match
 from erbs_plugin.scoring.axes import consistency_score
 
 REFERENCE = json.loads(
-    (Path(__file__).parent / "fixtures/ercraft-six-axis-reference.json").read_text()
+    (Path(__file__).parent / "fixtures/ercraft-six-axis-reference.json").read_text(encoding="utf-8")
 )
 
 

@@ -11,7 +11,7 @@ from erbs_plugin import AsyncERBSClient, ERBSConfig, ERBSService, UpstreamUnavai
 from erbs_plugin.cache import query_cache_spec
 
 REFERENCE = json.loads(
-    (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+    (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text(encoding="utf-8")
 )
 RAW = REFERENCE["matches"][0]["raw"]
 KEYS = ("survival", "combat", "macro", "support", "finish", "consistency")

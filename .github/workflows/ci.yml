@@ -7,6 +7,7 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -15,6 +16,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+      - name: Install Linux rendering dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 fonts-noto-cjk
       - run: uv sync --all-extras --dev
       - run: uv run ruff check .
       - run: uv run pytest

@@ -70,7 +70,9 @@ async def test_six_axis_radar_renders_scores_and_missing_data(has_data: bool) ->
     pytest.importorskip("playwright")
     pytest.importorskip("jinja2")
     reference = json.loads(
-        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text(
+            encoding="utf-8"
+        )
     )
     raw = reference["matches"][0]["raw"] if has_data else {}
     profile = RadarScorer().score(RadarSample("sample", (raw,)))

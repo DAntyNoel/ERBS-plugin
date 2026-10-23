@@ -12,7 +12,9 @@ from erbs_plugin import AsyncERBSClient, ERBSConfig, ERBSService, SkiaCardRender
 @pytest.mark.asyncio
 async def test_match_card_exposes_and_renders_performance_evidence() -> None:
     case = json.loads(
-        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text(
+            encoding="utf-8"
+        )
     )["matches"][0]
 
     async def handler(request: httpx.Request) -> httpx.Response:

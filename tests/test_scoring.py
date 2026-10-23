@@ -11,7 +11,9 @@ from erbs_plugin import compute_match_grade, score_match
 from erbs_plugin.scoring.core import document, js_round
 
 REFERENCE = json.loads(
-    (Path(__file__).parent / "fixtures" / "ercraft-scoring-reference.json").read_text()
+    (Path(__file__).parent / "fixtures" / "ercraft-scoring-reference.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 
@@ -112,4 +114,4 @@ def test_bundled_baselines_are_unchanged_upstream_artifacts() -> None:
     for path, digest in provenance["sourceFiles"].items():
         data = root.joinpath(path.split("/")[-1]).read_bytes()
         assert hashlib.sha256(data).hexdigest() == digest
-    assert "Copyright (c) 2026 MINE9289" in root.joinpath("LICENSE.txt").read_text()
+    assert "Copyright (c) 2026 MINE9289" in root.joinpath("LICENSE.txt").read_text(encoding="utf-8")

@@ -125,7 +125,9 @@ async def test_radar_data_source_rejects_invalid_count_before_fetch() -> None:
 
 def test_radar_uses_upstream_six_axes_without_sample_shrinkage() -> None:
     reference = json.loads(
-        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text(
+            encoding="utf-8"
+        )
     )
     raw = reference["matches"][0]["raw"]
     small = RadarScorer().score(RadarSample("Kanami", (raw,)))
@@ -142,7 +144,9 @@ def test_radar_uses_upstream_six_axes_without_sample_shrinkage() -> None:
 
 def test_result_axis_uses_every_scored_match_as_upstream_does() -> None:
     reference = json.loads(
-        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text(
+            encoding="utf-8"
+        )
     )
     sample = RadarSample("sample", tuple(c["raw"] for c in reference["matches"][:210]))
     profile = RadarScorer().score(sample)
@@ -168,7 +172,9 @@ def test_radar_does_not_turn_missing_data_into_neutral_or_zero_scores() -> None:
 
 def test_radar_presentation_keeps_semantic_scores_without_svg_geometry() -> None:
     reference = json.loads(
-        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text()
+        (Path(__file__).parent / "fixtures/ercraft-scoring-reference.json").read_text(
+            encoding="utf-8"
+        )
     )
     profile = RadarScorer().score(
         RadarSample("sample", tuple(c["raw"] for c in reference["matches"][:2]))
