@@ -18,6 +18,10 @@ if TYPE_CHECKING:
     from .dak import AsyncERBSClient
 
 
+_SUCCESS_STATES = {"success-changed", "success-no-change", "completed"}
+_FAILURE_STATES = {"failed", "error", "partial-failed", "timed-out", "partial"}
+
+
 def _observed_at(identity: Mapping) -> datetime | None:
     # The outer response's refreshedAt is just its serving time, not rank freshness.
     for key in ("currentRankObservedAt", "lastRefreshedAt", "lastCheckedAt"):
@@ -71,14 +75,17 @@ async def refresh_stale_player_summary(
         client, f"{player_path}/refresh", method="POST",
         params={"seasonId": identity.get("currentSeason")}, body={"mode": "rank"},
     )
-    while status.get("status") not in {"success-changed", "success-no-change", "completed"}:
+    while True:
         state = status.get("status") or status.get("jobStatus")
+        if state in _SUCCESS_STATES:
+            break
         job = status.get("jobId")
-        if state not in {
-            "queued", "running", "pending", "resolving", "collecting-matches",
-            "fetching-latest-matches",
-        } or not isinstance(job, str) or not job:
-            reason = status.get("lastError") or status.get("lastErrorCode") or state or "未知状态"
+        # Match the website's terminal-state handling. lastErrorCode describes the
+        # previous attempt during waiting-retry; it does not terminate the job.
+        # Keep polling new intermediate states too, without submitting another job.
+        if state in _FAILURE_STATES or not isinstance(job, str) or not job:
+            reason = (status.get("lastError") or status.get("lastErrorCode")
+                      or status.get("error") or status.get("errorCode") or state or "未知状态")
             raise UpstreamUnavailable(f"ERCraft 玩家资料已过期，刷新未完成：{reason}")
         if progress is not None:
             await progress({**status, "phase": "refresh", "nickname": nickname})

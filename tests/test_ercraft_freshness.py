@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -111,6 +112,111 @@ async def test_fresh_identity_does_not_enqueue_refresh(tmp_path, rp):
     ) as client:
         card = await ERBSService(client).published_player_summary("宇麟涵")
     assert card.sections[0]["rp"] == rp
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", [
+    "waiting-retry", "matches-updated", "refreshing-summary", "refreshing-stats",
+    "refreshing-aggregate", "future-processing-state",
+])
+@pytest.mark.parametrize("code", ["upstream-error", "refresh-error"])
+async def test_refresh_waits_through_retryable_and_new_intermediate_states(
+    tmp_path, monkeypatch, state, code,
+):
+    sleep, progress = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(ercraft_refresh.asyncio, "sleep", sleep)
+    calls = []
+    refreshed = False
+
+    def handler(request):
+        nonlocal refreshed
+        calls.append(request)
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(200, json=profile(stale=not refreshed,
+                                                   rp=7919 if refreshed else 7115))
+        if request.url.path.endswith("/refresh"):
+            return httpx.Response(202, json={"data": {
+                "status": state, "jobId": "job-1", "lastErrorCode": code,
+                "lastError": "previous upstream attempt failed", "retryableUpstreamFailure": True,
+            }})
+        if request.url.path.endswith("/refresh/job-1"):
+            refreshed = True
+            # Some responses expose jobStatus instead of status.
+            return httpx.Response(200, json={"data": {"jobStatus": "completed", "jobId": "job-1"}})
+        assert request.url.path == "/api/player-analysis/roles"
+        return httpx.Response(200, json=report(362))
+
+    async with AsyncERBSClient(
+        ERBSConfig(asset_directory=tmp_path), transport=httpx.MockTransport(handler),
+    ) as client:
+        card = await ERBSService(client).published_player_summary("宇麟涵", progress=progress)
+    assert card.sections[0]["rp"] == 7919
+    assert card.sections[0]["sampleSize"] == 362
+    assert sum(request.method == "POST" for request in calls) == 1
+    sleep.assert_awaited_once_with(3)
+    assert progress.await_args.args[0]["status"] == state
+    assert progress.await_args.args[0]["lastErrorCode"] == code
+
+
+@pytest.mark.asyncio
+async def test_refresh_has_no_total_wait_limit_or_repeated_submissions(tmp_path, monkeypatch):
+    sleep = AsyncMock()
+    monkeypatch.setattr(ercraft_refresh.asyncio, "sleep", sleep)
+    posts, polls = 0, 0
+
+    def handler(request):
+        nonlocal posts, polls
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(200, json=profile(stale=polls < 101))
+        if request.url.path.endswith("/refresh"):
+            posts += 1
+            return httpx.Response(202, json={"data": {"status": "queued", "jobId": "job-1"}})
+        if request.url.path.endswith("/refresh/job-1"):
+            polls += 1
+            return httpx.Response(200, json={"data": {
+                "status": "waiting-retry" if polls <= 100 else "success-no-change",
+                "jobId": "job-1", "lastErrorCode": "upstream-error",
+            }})
+        return httpx.Response(200, json=report(362))
+
+    async with AsyncERBSClient(
+        ERBSConfig(asset_directory=tmp_path), transport=httpx.MockTransport(handler),
+    ) as client:
+        card = await ERBSService(client).published_player_summary("宇麟涵")
+    assert card.sections[0]["sampleSize"] == 362
+    assert posts == 1 and polls == 101 and sleep.await_count == 101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["failed", "error", "partial-failed", "timed-out", "partial"])
+@pytest.mark.parametrize("code", ["upstream-error", "refresh-error"])
+async def test_refresh_stops_at_terminal_failure_even_when_marked_retryable(
+    tmp_path, monkeypatch, state, code,
+):
+    sleep = AsyncMock()
+    monkeypatch.setattr(ercraft_refresh.asyncio, "sleep", sleep)
+    polls = 0
+
+    def handler(request):
+        nonlocal polls
+        if request.url.path.endswith("/summary"):
+            return httpx.Response(200, json=profile(stale=True, rp=7115))
+        if request.url.path.endswith("/refresh"):
+            return httpx.Response(202, json={"data": {"status": "queued", "jobId": "job-1"}})
+        assert request.url.path.endswith("/refresh/job-1")
+        polls += 1
+        return httpx.Response(200, json={"data": {
+            "status": state, "jobId": "job-1", "lastErrorCode": code,
+            "retryableUpstreamFailure": True,
+        }})
+
+    async with AsyncERBSClient(
+        ERBSConfig(asset_directory=tmp_path), transport=httpx.MockTransport(handler),
+    ) as client:
+        with pytest.raises(UpstreamUnavailable, match=code):
+            await ERBSService(client).published_player_summary("宇麟涵")
+    assert polls == 1
+    sleep.assert_awaited_once_with(3)
 
 
 @pytest.mark.asyncio
