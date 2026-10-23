@@ -100,6 +100,20 @@ async def test_scoring_version_prevents_reusing_old_style_payloads(tmp_path) -> 
 
 
 @pytest.mark.asyncio
+async def test_ranked_sidebar_does_not_reuse_mode_dependent_search_cache(tmp_path) -> None:
+    database = QueryCacheDatabase(tmp_path / "queries.sqlite3")
+    current_spec = _spec("search")
+    assert current_spec["playerSidebarMode"] == "RANK"
+    old_spec = {key: value for key, value in current_spec.items() if key != "playerSidebarMode"}
+    await database.set(
+        old_spec, CardPayload(kind="player", title="mode-dependent sidebar"), ttl=300,
+    )
+
+    assert await database.get(current_spec) is None
+    assert "playerSidebarMode" not in _spec("overview")
+
+
+@pytest.mark.asyncio
 async def test_summary_cache_is_distinct_from_radar_and_requested_sample_count(tmp_path) -> None:
     database = QueryCacheDatabase(tmp_path / "queries.sqlite3")
     summary_spec = {**_spec("summary"), "count": 20}

@@ -145,54 +145,18 @@ class DakQueryMixin:
             if latest is None or not latest.get("key"):
                 raise UpstreamUnavailable("DAK.GG 缺少玩家最近游玩赛季的映射")
             season_key = str(latest["key"])
-        mode_id = {"RANK": 3, "NORMAL": 2, "COBALT": 6, "ALL": None}[mode]
-        overviews = [
-            row
-            for row in rows(profile.raw.get("playerSeasonOverviews"))
-            if (profile.season_id is None or row.get("seasonId") == profile.season_id)
-            and (
-                mode == "ALL"
-                or (
-                    row.get("matchingModeId") == mode_id
-                    and row.get("teamModeId") == (4 if mode == "COBALT" else 3)
-                )
-            )
-        ]
-        overview = next(iter(overviews), {})
-        if mode == "ALL":
-            keys = (
-                "play",
-                "win",
-                "top3",
-                "top2",
-                "damageToPlayer",
-                "teamKill",
-                "playerKill",
-                "playerAssistant",
-                "place",
-                "monsterKill",
-                "totalGainVFCredit",
-                "viewContribution",
-            )
-            overview = {
-                key: sum(values)
-                if (
-                    values := [
-                        value for row in overviews if (value := number(row.get(key))) is not None
-                    ]
-                )
-                else None
-                for key in keys
-            }
-            aggregate: dict[str, dict] = {}
-            for row in overviews:
-                for hero in rows(row.get("characterStats")):
-                    identifier = str(hero.get("key"))
-                    combined = aggregate.setdefault(identifier, {"key": hero.get("key")})
-                    for key in keys:
-                        if (value := number(hero.get(key))) is not None:
-                            combined[key] = combined.get(key, 0) + value
-            overview["characterStats"] = list(aggregate.values())
+        # The left column always describes ranked squads in the selected season.
+        # Only the recent-match list on the right follows the requested mode.
+        overview = next(
+            (
+                row
+                for row in rows(profile.raw.get("playerSeasonOverviews"))
+                if (profile.season_id is None or row.get("seasonId") == profile.season_id)
+                and row.get("matchingModeId") == 3
+                and row.get("teamModeId") == 3
+            ),
+            {},
+        )
         profile = replace(
             profile, overview=overview, characters=tuple(rows(overview.get("characterStats")))
         )
@@ -282,11 +246,10 @@ class DakQueryMixin:
             ][:7][::-1],
         }
         sections = [{**section("赛季概览", stats, "stats"), "profile": player_info}]
-        if mode == "RANK":
-            rank_section = dict(self._rank_section(profile))
-            if rank_section.get("imageUrl"):
-                rank_section["imageUrl"] = rank_section["imageUrl"].replace("/full/", "/round/")
-            sections.append(rank_section)
+        rank_section = dict(self._rank_section(profile))
+        if rank_section.get("imageUrl"):
+            rank_section["imageUrl"] = rank_section["imageUrl"].replace("/full/", "/round/")
+        sections.append(rank_section)
         sections.extend(self._recent_sections(matches, characters))
         sections.append(self._hero_pool_section(self._hero_pool_items(profile, characters)))
         trait_map = index(traits, "traitSkills")

@@ -151,7 +151,7 @@ def render_player(renderer, payload) -> bytes:
     x, y, w = 20, 295, 380
     d.rect(x, y, w, 525)
     d.center(
-        f"{profile.get('modeName', '排位')} · {profile.get('seasonName') or '—'}",
+        f"排位 · {profile.get('seasonName') or '—'}",
         x,
         y + 32,
         w,

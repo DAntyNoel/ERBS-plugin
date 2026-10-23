@@ -298,7 +298,11 @@ async def test_player_query_uses_latest_played_season_and_mode_not_today() -> No
                 config=ERBSConfig(query_cache_enabled=False),
             )
         )
-    assert result["sections"][0]["items"][1]["value"] == 10
+    # Cobalt history must not fill the missing ranked sidebar with cobalt statistics.
+    assert result["sections"][0]["items"][1]["value"] is None
+    assert result["sections"][0]["profile"]["mmrHistory"] == []
+    assert next(s for s in result["sections"] if s.get("type") == "hero-pool")["items"] == []
+    assert any(s.get("type") == "rank" for s in result["sections"])
     request = next(request for request in seen if request.url.path.endswith("/matches"))
     assert request.url.params["season"] == "SEASON_11"
     assert request.url.params["matchingMode"] == "COBALT"
@@ -307,7 +311,14 @@ async def test_player_query_uses_latest_played_season_and_mode_not_today() -> No
 
 
 @pytest.mark.asyncio
-async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
+@pytest.mark.parametrize(
+    ("mode", "label", "mode_ids"),
+    [("ALL", "全部", [3, 2, 6]), ("RANK", "排位", [3]),
+     ("NORMAL", "匹配", [2]), ("COBALT", "钴协议", [6])],
+)
+async def test_player_sidebar_stays_ranked_in_selected_season_while_history_filters(
+    mode, label, mode_ids,
+):
     seen = []
 
     def handler(request):
@@ -318,6 +329,7 @@ async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
                 "playerSeasons": [{"seasonId": 41, "mmr": 9000}, {"seasonId": 39, "mmr": 0}],
                 "playerSeasonOverviews": [
                     {"seasonId": 41, "play": 999},
+                    {"seasonId": 39, "matchingModeId": 3, "teamModeId": 2, "play": 99},
                     {
                         "seasonId": 39,
                         "matchingModeId": 3,
@@ -325,6 +337,8 @@ async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
                         "play": 10,
                         "win": 3,
                         "characterStats": [{"key": 19, "play": 10}],
+                        "mmrStats": [["2026-10-20", 0]],
+                        "duoStats": [{"nickname": "ranked teammate", "play": 4, "win": 1}],
                     },
                     {
                         "seasonId": 39,
@@ -334,10 +348,19 @@ async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
                         "win": 7,
                         "characterStats": [{"key": 19, "play": 20}],
                     },
+                    {
+                        "seasonId": 39, "matchingModeId": 6, "teamModeId": 4,
+                        "play": 50, "win": 25,
+                        "characterStats": [{"key": 19, "play": 50}],
+                    },
                 ],
             },
             "seasons": {"seasons": [{"id": 39, "key": "SEASON_11"}]},
-            "matches": {"matches": []},
+            "matches": {"matches": [
+                {"gameId": mode_id, "matchingMode": mode_id, "gameRank": 2,
+                 "seasonId": 39, "characterNum": 19}
+                for mode_id in mode_ids
+            ]},
             "items": {"items": []},
             "characters": {"characters": [CHARACTER]},
         }
@@ -346,15 +369,23 @@ async def test_explicit_season_and_all_modes_keep_profile_and_matches_aligned():
     async with AsyncERBSClient(transport=httpx.MockTransport(handler)) as client:
         card = await ERBSService(client).search_player_card(
             "sample",
-            mode="ALL",
+            mode=mode,
             season="SEASON_11",
         )
-    assert card.sections[0]["items"][1]["value"] == 30
-    assert card.sections[0]["items"][2]["value"] == 10
-    assert card.sections[-2]["items"][0]["plays"] == 30
+    assert card.sections[0]["items"][1]["value"] == 10
+    assert card.sections[0]["items"][2]["value"] == 3
+    assert card.sections[0]["profile"]["mmrHistory"] == [{"date": "2026-10-20", "mmr": 0}]
+    assert card.sections[0]["teammates"][0]["name"] == "ranked teammate"
+    assert card.sections[0]["profile"]["modeName"] == label
+    assert card.sections[-2]["items"][0]["plays"] == 10
+    rank = next(s for s in card.sections if s.get("type") == "rank")
+    assert rank["items"][0]["value"] == 0  # Keep this season's placement RP, not season 41's.
+    matches = next(s["items"] for s in card.sections if s.get("title") == "最近对局")
+    assert [match["matchingMode"] for match in matches] == mode_ids
     request = next(request for request in seen if request.url.path.endswith("/matches"))
     assert request.url.params["season"] == "SEASON_11"
-    assert request.url.params["matchingMode"] == request.url.params["teamMode"] == "ALL"
+    assert request.url.params["matchingMode"] == mode
+    assert request.url.params["teamMode"] == {"ALL": "ALL", "COBALT": "COBALT"}.get(mode, "SQUAD")
 
 
 @pytest.mark.asyncio
