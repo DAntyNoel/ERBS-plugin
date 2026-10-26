@@ -43,7 +43,7 @@ def query_cache_spec(
 ) -> dict[str, Any]:
     return {
         "queryVersion": "dak-desktop-v3",
-        **({"playerSidebarMode": "RANK", "playerMatchVersion": 1} if operation == "search" else {}),
+        **({"playerSidebarMode": "RANK", "playerMatchVersion": 2} if operation == "search" else {}),
         "operation": operation,
         "mode": mode,
         "tier": tier,

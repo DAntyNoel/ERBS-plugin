@@ -327,8 +327,9 @@ def _player_match(d, row, x, y, w):
         "saopaulo": "南美",
     }.get(server.casefold(), server or "未知区服")
     game_id = row.get("gameId")
+    game_version = row.get("gameVersion") or "—"
     d.center(
-        f"{server_name} {game_id if game_id is not None else '—'}",
+        f"{server_name} · {game_id if game_id is not None else '—'} ({game_version})",
         x + 180,
         y + 13,
         390,

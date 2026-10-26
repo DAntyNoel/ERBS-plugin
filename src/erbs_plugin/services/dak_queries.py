@@ -268,6 +268,9 @@ class DakQueryMixin:
             if skin_ref.get("imageUrl"):
                 entry["imageUrl"] = skin_ref["imageUrl"].replace("CharResult_", "CharProfile_")
             raw = match.raw
+            version_parts = [
+                raw.get(key) for key in ("versionSeason", "versionMajor", "versionMinor")
+            ]
             trait_ids = [
                 raw.get("traitFirstCore"),
                 *(raw.get("traitFirstSub") or []),
@@ -278,6 +281,9 @@ class DakQueryMixin:
                 level=raw.get("characterLevel"),
                 startedAt=raw.get("startDtm"),
                 serverName=raw.get("serverName"),
+                gameVersion=".".join(str(part) for part in version_parts)
+                if all(type(part) is int and part >= 0 for part in version_parts)
+                else None,
                 modeName={2: "匹配", 3: "排位", 6: "钴协议"}.get(raw.get("matchingMode"), "对局"),
                 matchingMode=raw.get("matchingMode"),
                 traitSkills=[
