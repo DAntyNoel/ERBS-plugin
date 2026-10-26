@@ -58,19 +58,19 @@ async def test_player_layout_keeps_ranked_sidebar_and_two_bounded_columns(
         ))
         ranked_png = await renderer.render(ranked_payload)
         ranked_image = skia.Image.MakeFromEncoded(ranked_png)
-    assert image.width() == 1290
+    assert image.width() == 1100
     assert 900 <= image.height() < 3000
     pixels = image.toarray(colorType=skia.kRGBA_8888_ColorType)
     ranked_pixels = ranked_image.toarray(colorType=skia.kRGBA_8888_ColorType)
     # Switching the right-side tab leaves the entire left sidebar visually identical.
-    assert (pixels[295:, 20:400] == ranked_pixels[295:, 20:400]).all()
+    assert (pixels[228:, 10:336] == ranked_pixels[228:, 10:336]).all()
     # Both columns have white cards in the same vertical band, separated by the page gutter.
     assert tuple(pixels[340, 45, :3]) == (255, 255, 255)
     assert tuple(pixels[380, 460, :3]) == (255, 255, 255)
-    assert tuple(pixels[340, 410, :3]) == (244, 244, 244)
+    assert tuple(pixels[340, 343, :3]) == (244, 244, 244)
     async with SkiaCardRenderer(replace(config, render_scale=0.5)) as renderer:
         half = skia.Image.MakeFromEncoded(await renderer.render(payload))
-    assert half.width() == 645
+    assert half.width() == 550
     assert abs(half.height() * 2 - image.height()) <= 1
 
 

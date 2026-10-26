@@ -129,40 +129,46 @@ def render_player(renderer, payload) -> bytes:
     )
     heroes = sections.get("hero-pool", {}).get("items", [])
     teammates = overview.get("teammates", [])
-    left_end = 850 + len(heroes) * 70 + 90 + len(teammates) * 70
-    right_end = 490 + max(1, len(matches)) * 110
-    bottom = max(left_end, right_end) + 28
-    footer_height = 45 + 22 * len(renderer._footer_lines(payload, 1250))
-    d = Drawing(renderer, 1290, bottom + footer_height)
-    d.image(profile.get("bannerUrl"), 20, 20, 1250, 205, cover=True, bg=DARK)
-    d.image(profile.get("imageUrl"), 20, 20, 260, 205, cover=True, bg=DARK)
-    d.rect(300, 43, 62, 24, 0xB0000000, 12)
-    d.text(f"Lv.{profile.get('level', '—')}", 309, 60, 14, WHITE)
-    d.text(payload.title, 300, 108, 34, WHITE, True, 650)
-    d.text(profile.get("seasonName") or "赛季未知", 1120, 188, 18, WHITE, width=130)
-    d.rect(300, 135, 105, 40, GREEN, 3)
-    d.center("玩家战绩", 300, 161, 105, 17, WHITE, True)
-    d.rect(20, 225, 1250, 48, 0xFF353844)
+    page_width, margin, left_width, gutter = 1100, 10, 326, 14
+    content_width = page_width - margin * 2
+    body_y, rank_height, table_row_height = 228, 464, 56
+    hero_y = body_y + rank_height + 16
+    teammates_y = hero_y + 38 + len(heroes) * table_row_height + 16
+    matches_y, match_height, match_gap = 392, 88, 6
+    left_end = teammates_y + 38 + max(44, len(teammates) * table_row_height)
+    right_end = matches_y + max(1, len(matches)) * (match_height + match_gap) - match_gap
+    bottom = max(left_end, right_end) + 18
+    footer_height = 45 + 22 * len(renderer._footer_lines(payload, content_width))
+    d = Drawing(renderer, page_width, bottom + footer_height)
+    d.image(profile.get("bannerUrl"), margin, 10, content_width, 166, cover=True, bg=DARK)
+    d.image(profile.get("imageUrl"), margin, 10, 220, 166, cover=True, bg=DARK)
+    d.rect(244, 27, 58, 22, 0xB0000000, 11)
+    d.text(f"Lv.{profile.get('level', '—')}", 252, 43, 12, WHITE)
+    d.text(payload.title, 244, 82, 28, WHITE, True, 640)
+    d.text(profile.get("seasonName") or "赛季未知", 958, 151, 15, WHITE, width=120)
+    d.rect(244, 103, 92, 32, GREEN, 3)
+    d.center("玩家战绩", 244, 125, 92, 15, WHITE, True)
+    d.rect(margin, 176, content_width, 36, 0xFF353844)
     for i, name in enumerate(("总览", "实验体", "历史对局", "皮肤统计")):
-        d.rect(30 + i * 115, 225, 115, 48, WHITE if i == 0 else 0xFF353844)
-        d.center(name, 30 + i * 115, 255, 115, 17, INK if i == 0 else WHITE, i == 0)
+        d.rect(margin + i * 92, 176, 92, 36, WHITE if i == 0 else 0xFF353844)
+        d.center(name, margin + i * 92, 200, 92, 15, INK if i == 0 else WHITE, i == 0)
 
     # Left: rank, twelve season metrics and the daily RP history.
-    x, y, w = 20, 295, 380
-    d.rect(x, y, w, 525)
+    x, y, w = margin, body_y, left_width
+    d.rect(x, y, w, rank_height)
     d.center(
         f"排位 · {profile.get('seasonName') or '—'}",
         x,
-        y + 32,
+        y + 26,
         w,
-        19,
+        16,
         bold=True,
     )
-    d.line(x, y + 50, w)
-    d.image(rank.get("imageUrl"), x + 28, y + 66, 100, 100)
-    d.text(f"{num(rank_stats.get('MMR'), 0)} RP", x + 145, y + 90, 25, TAN, True)
-    d.text(f"{rank.get('tierName', '未定级')} {rank_stats.get('小段', '')}", x + 145, y + 119, 16)
-    d.text(f"{rank_stats.get('小段 RP', '—')} RP", x + 145, y + 144, 14, MUTED)
+    d.line(x, y + 38, w)
+    d.image(rank.get("imageUrl"), x + 20, y + 52, 80, 80)
+    d.text(f"{num(rank_stats.get('MMR'), 0)} RP", x + 120, y + 72, 22, TAN, True)
+    d.text(f"{rank.get('tierName', '未定级')} {rank_stats.get('小段', '')}", x + 120, y + 96, 14)
+    d.text(f"{rank_stats.get('小段 RP', '—')} RP", x + 120, y + 117, 12, MUTED)
     labels = [
         ("平均TK", "平均 TK", 2, ""),
         ("胜率", "胜率 %", 1, "%"),
@@ -178,46 +184,47 @@ def render_player(renderer, payload) -> bytes:
         ("平均视野贡献", "平均视野贡献", 2, ""),
     ]
     for i, (label, key, digits, suffix) in enumerate(labels):
-        cx, cy = x + 16 + i % 3 * 122, y + 180 + i // 3 * 48
-        d.text(label, cx, cy + 14, 12, MUTED, width=116)
-        d.rect(cx, cy + 21, 106, 3, LINE)
-        d.text(num(stats.get(key), digits, suffix), cx, cy + 43, 16, bold=True)
-    _history(d, profile.get("mmrHistory") or [], x + 10, y + 395, w - 20, 116)
-    y += 550
+        cx, cy = x + 12 + i % 3 * 104, y + 145 + i // 3 * 43
+        d.text(label, cx, cy + 13, 11, MUTED, width=96)
+        d.rect(cx, cy + 19, 94, 3, LINE)
+        d.text(num(stats.get(key), digits, suffix), cx, cy + 37, 14, bold=True)
+    _history(d, profile.get("mmrHistory") or [], x + 10, y + 332, w - 20, 116)
+    y = hero_y
     d.table_head("实验体", x, y, w, (("胜率", 0.38), ("RP", 0.56), ("均伤", 0.76)))
     for i, hero in enumerate(heroes):
-        cy = y + 38 + i * 70
-        d.rect(x, cy, w, 70)
-        d.image(hero.get("imageUrl"), x + 8, cy + 14, 38, 38, circle=True)
-        d.text(hero.get("name"), x + 52, cy + 26, 13, width=92)
-        d.text(f"{hero.get('plays', '—')} 场", x + 52, cy + 47, 12, MUTED)
-        d.center(hero.get("winRate", "—"), x + 142, cy + 35, 62, 13)
-        d.center(num(hero.get("mmrGain"), 0), x + 207, cy + 35, 68, 13, TAN)
-        d.center(divided(hero, "damageToPlayer", digits=0), x + 278, cy + 35, 94, 13)
-        d.line(x, cy + 69, w)
-    y += 38 + len(heroes) * 70 + 25
+        cy = y + 38 + i * table_row_height
+        d.rect(x, cy, w, table_row_height)
+        d.image(hero.get("imageUrl"), x + 8, cy + 11, 34, 34, circle=True)
+        d.text(hero.get("name"), x + 48, cy + 24, 12, width=76)
+        d.text(f"{hero.get('plays', '—')} 场", x + 48, cy + 42, 10, MUTED)
+        d.center(hero.get("winRate", "—"), x + 125, cy + 33, 53, 12)
+        d.center(num(hero.get("mmrGain"), 0), x + 180, cy + 33, 60, 12, TAN)
+        d.center(divided(hero, "damageToPlayer", digits=0), x + 242, cy + 33, 77, 12)
+        d.line(x, cy + table_row_height - 1, w)
+    y = teammates_y
     d.table_head("一起游戏的玩家", x, y, w, (("胜率", 0.55), ("均排", 0.77)))
     for i, mate in enumerate(teammates):
-        cy = y + 38 + i * 70
-        d.rect(x, cy, w, 70)
-        d.image(mate.get("imageUrl"), x + 8, cy + 15, 38, 38, circle=True)
-        d.text(mate.get("name"), x + 55, cy + 27, 14, width=142)
-        d.text(f"{mate.get('plays', '—')} 场", x + 55, cy + 49, 12, MUTED)
-        d.center(num(mate.get("winRate"), 1, "%"), x + 205, cy + 37, 76, 14)
-        d.center(num(mate.get("avgRank")), x + 291, cy + 37, 78, 14)
+        cy = y + 38 + i * table_row_height
+        d.rect(x, cy, w, table_row_height)
+        d.image(mate.get("imageUrl"), x + 8, cy + 11, 34, 34, circle=True)
+        d.text(mate.get("name"), x + 50, cy + 24, 12, width=124)
+        d.text(f"{mate.get('plays', '—')} 场", x + 50, cy + 42, 10, MUTED)
+        d.center(num(mate.get("winRate"), 1, "%"), x + 180, cy + 33, 64, 12)
+        d.center(num(mate.get("avgRank")), x + 250, cy + 33, 67, 12)
     if not teammates:
-        d.rect(x, y + 38, w, 60)
-        d.text("暂无一起游戏的玩家", x + 20, y + 73, 14, MUTED)
+        d.rect(x, y + 38, w, 44)
+        d.text("暂无一起游戏的玩家", x + 14, y + 66, 12, MUTED)
 
     # Right: mode tabs, recent summary and compact match rows.
-    x, y, w = 420, 295, 850
+    x, y = margin + left_width + gutter, body_y
+    w = page_width - x - margin
     mode_name = profile.get("modeName", "排位")
     for i, name in enumerate(("全部", "排位", "匹配", "钴协议")):
-        d.rect(x + i * w / 4, y, w / 4 - 1, 44, GOLD if name == mode_name else WHITE)
-        d.center(name, x + i * w / 4, y + 28, w / 4, 17, WHITE if name == mode_name else INK)
-    y += 56
-    d.rect(x, y, w, 126)
-    d.text(f"最近 {len(matches)} 场对局（{mode_name}）", x + 16, y + 27, 16, bold=True)
+        d.rect(x + i * w / 4, y, w / 4 - 1, 36, GOLD if name == mode_name else WHITE)
+        d.center(name, x + i * w / 4, y + 24, w / 4, 15, WHITE if name == mode_name else INK)
+    y += 44
+    d.rect(x, y, w, 112)
+    d.text(f"最近 {len(matches)} 场对局（{mode_name}）", x + 14, y + 23, 14, bold=True)
     metrics = [
         (
             "平均排名",
@@ -231,8 +238,9 @@ def render_player(renderer, payload) -> bytes:
         ),
     ]
     for i, (label, value) in enumerate(metrics):
-        d.center(label, x + 80 + i * 175, y + 56, 175, 13, MUTED)
-        d.center(value, x + 80 + i * 175, y + 80, 175, 19, GREEN if i == 1 else INK, True)
+        cell_x, cell_width = x + 16 + i * (w - 32) / 4, (w - 32) / 4
+        d.center(label, cell_x, y + 48, cell_width, 12, MUTED)
+        d.center(value, cell_x, y + 69, cell_width, 17, GREEN if i == 1 else INK, True)
     rank_size, rank_gap = 24, 5
     ranks_width = len(matches) * (rank_size + rank_gap) - rank_gap
     for i, match in enumerate(reversed(matches)):
@@ -240,23 +248,23 @@ def render_player(renderer, payload) -> bytes:
             GREEN if match.get("rank") == 1 else BLUE if match.get("rank") in {2, 3} else 0xFFD9D9D9
         )
         tx = x + (w - ranks_width) / 2 + i * (rank_size + rank_gap)
-        d.rect(tx, y + 94, rank_size, rank_size, color, 4)
+        d.rect(tx, y + 82, rank_size, rank_size, color, 4)
         d.center(
             match.get("rank"),
             tx,
-            y + 111,
+            y + 99,
             rank_size,
             13,
             WHITE if match.get("rank", 9) <= 3 else MUTED,
             True,
         )
-    y = 490
+    y = matches_y
     for i, match in enumerate(matches):
-        _player_match(d, match, x, y + i * 110, w)
+        _player_match(d, match, x, y + i * (match_height + match_gap), w)
     if not matches:
-        d.rect(x, y, w, 110)
-        d.center("当前筛选条件暂无对局", x, y + 64, w, 20, MUTED)
-    d.footer(payload, 20, bottom, 1250)
+        d.rect(x, y, w, match_height)
+        d.center("当前筛选条件暂无对局", x, y + 51, w, 17, MUTED)
+    d.footer(payload, margin, bottom, content_width)
     return d.finish()
 
 
@@ -286,10 +294,10 @@ def _history(d, items, x, y, w, h):
 def _player_match(d, row, x, y, w):
     rank = row.get("rank")
     color = GREEN if rank == 1 else BLUE if rank in {2, 3} else 0xFF555D67
-    d.rect(x, y, w, 100, WHITE, 4)
-    d.rect(x, y, 7, 100, color, 3)
-    d.text(f"#{rank or '—'}", x + 18, y + 24, 18, color, True)
-    d.text(row.get("modeName"), x + 18, y + 46, 13, MUTED)
+    d.rect(x, y, w, 88, WHITE, 4)
+    d.rect(x, y, 6, 88, color, 3)
+    d.text(f"#{rank or '—'}", x + 12, y + 21, 15, color, True)
+    d.text(row.get("modeName"), x + 12, y + 39, 11, MUTED)
     try:
         stamp = datetime.fromisoformat(str(row.get("startedAt"))).astimezone(
             timezone(timedelta(hours=d.r.config.render_timezone_offset_hours))
@@ -297,16 +305,16 @@ def _player_match(d, row, x, y, w):
         date, time = stamp.strftime("%m/%d"), stamp.strftime("%H:%M")
     except (ValueError, TypeError):
         date, time = "—", "—"
-    d.text(time, x + 18, y + 66, 12, MUTED)
-    d.text(date, x + 18, y + 84, 12, MUTED)
-    d.image(row.get("imageUrl"), x + 89, y + 13, 57, 57, circle=True)
-    d.rect(x + 128, y + 53, 22, 19, DARK, 9)
-    d.center(row.get("level"), x + 128, y + 67, 22, 11, WHITE)
-    d.center(row.get("characterName"), x + 77, y + 88, 90, 12)
+    d.text(time, x + 12, y + 58, 11, MUTED)
+    d.text(date, x + 12, y + 75, 11, MUTED)
+    d.image(row.get("imageUrl"), x + 73, y + 10, 52, 52, circle=True)
+    d.rect(x + 109, y + 47, 20, 18, DARK, 9)
+    d.center(row.get("level"), x + 109, y + 60, 20, 10, WHITE)
+    d.center(row.get("characterName"), x + 61, y + 80, 76, 11)
     icons = [row.get("tacticalSkill") or {}, *(row.get("traitSkills") or [])]
     for i, icon in enumerate(icons[:6]):
         d.image(
-            icon.get("imageUrl"), x + 159 + i % 2 * 25, y + 12 + i // 2 * 24, 22, 22, circle=True
+            icon.get("imageUrl"), x + 137 + i % 2 * 22, y + 11 + i // 2 * 22, 20, 20, circle=True
         )
     server = str(row.get("serverName") or "").strip()
     server_name = {
@@ -320,24 +328,25 @@ def _player_match(d, row, x, y, w):
     }.get(server.casefold(), server or "未知区服")
     game_id = row.get("gameId")
     d.center(
-        f"{server_name}—{game_id if game_id is not None else '—'}",
-        x + 218,
-        y + 18,
-        464,
-        12,
+        f"{server_name} {game_id if game_id is not None else '—'}",
+        x + 180,
+        y + 13,
+        390,
+        11,
         0xFF555555 if server_name == "亚一" else 0xFFAAAAAA,
         True,
     )
     d.center(
         f"{row.get('teamKills', '—')} / {row.get('kills', '—')} / {row.get('assists', '—')}",
-        x + 218,
-        y + 46,
-        128,
-        16,
+        x + 180,
+        y + 40,
+        94,
+        14,
+        bold=True,
     )
-    d.center("TK / K / A", x + 218, y + 69, 128, 12, MUTED)
-    d.center(num(row.get("damage"), 0), x + 355, y + 46, 102, 16)
-    d.center("伤害", x + 355, y + 69, 102, 12, MUTED)
+    d.center("TK / K / A", x + 180, y + 59, 94, 11, MUTED)
+    d.center(num(row.get("damage"), 0), x + 278, y + 40, 82, 14, bold=True)
+    d.center("伤害", x + 278, y + 59, 82, 11, MUTED)
     gain = row.get("mmrGain")
     ranked = row.get("matchingMode") == 3
     if ranked:
@@ -353,21 +362,22 @@ def _player_match(d, row, x, y, w):
         )
     d.center(
         value,
-        x + 464,
-        y + 46,
-        132,
-        15,
+        x + 366,
+        y + 40,
+        112,
+        13,
         GREEN if ranked and gain and gain > 0 else RED if ranked and gain and gain < 0 else INK,
+        True,
     )
-    d.center("RP" if ranked else "KDA", x + 464, y + 69, 132, 12, MUTED)
-    d.center(row.get("routeId"), x + 600, y + 46, 82, 15)
-    d.center("路径ID", x + 600, y + 69, 82, 12, MUTED)
+    d.center("RP" if ranked else "KDA", x + 366, y + 59, 112, 11, MUTED)
+    d.center(row.get("routeId"), x + 484, y + 40, 79, 13)
+    d.center("路径ID", x + 484, y + 59, 79, 11, MUTED)
     equipment = row.get("equipmentItems", [])[:5]
     for start in range(0, len(equipment), 3):
         equipment_row = equipment[start:start + 3]
-        row_x = x + 695 + (3 - len(equipment_row)) * 47 / 2
+        row_x = x + w - 149 + (3 - len(equipment_row)) * 47 / 2
         for i, item in enumerate(equipment_row):
-            d.item(item, row_x + i * 47, y + 20 + start // 3 * 32)
+            d.item(item, row_x + i * 47, y + 17 + start // 3 * 32)
 
 
 def render_character(renderer, payload) -> bytes:
