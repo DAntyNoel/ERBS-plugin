@@ -306,6 +306,26 @@ def _player_match(d, row, x, y, w):
         d.image(
             icon.get("imageUrl"), x + 159 + i % 2 * 25, y + 12 + i // 2 * 24, 22, 22, circle=True
         )
+    server = str(row.get("serverName") or "").strip()
+    server_name = {
+        "asia": "亚一",
+        "seoul": "亚一",
+        "asia2": "亚二",
+        "asia3": "亚三",
+        "ohio": "美服",
+        "frankfurt": "欧服",
+        "saopaulo": "南美",
+    }.get(server.casefold(), server or "未知区服")
+    game_id = row.get("gameId")
+    d.center(
+        f"{server_name}—{game_id if game_id is not None else '—'}",
+        x + 218,
+        y + 18,
+        464,
+        12,
+        0xFF555555 if server_name == "亚一" else 0xFFAAAAAA,
+        True,
+    )
     d.center(
         f"{row.get('teamKills', '—')} / {row.get('kills', '—')} / {row.get('assists', '—')}",
         x + 218,

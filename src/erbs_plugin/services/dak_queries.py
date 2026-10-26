@@ -277,6 +277,7 @@ class DakQueryMixin:
             entry.update(
                 level=raw.get("characterLevel"),
                 startedAt=raw.get("startDtm"),
+                serverName=raw.get("serverName"),
                 modeName={2: "匹配", 3: "排位", 6: "钴协议"}.get(raw.get("matchingMode"), "对局"),
                 matchingMode=raw.get("matchingMode"),
                 traitSkills=[
