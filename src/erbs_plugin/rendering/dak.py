@@ -233,17 +233,19 @@ def render_player(renderer, payload) -> bytes:
     for i, (label, value) in enumerate(metrics):
         d.center(label, x + 80 + i * 175, y + 56, 175, 13, MUTED)
         d.center(value, x + 80 + i * 175, y + 80, 175, 19, GREEN if i == 1 else INK, True)
+    rank_size, rank_gap = 24, 5
+    ranks_width = len(matches) * (rank_size + rank_gap) - rank_gap
     for i, match in enumerate(reversed(matches)):
         color = (
             GREEN if match.get("rank") == 1 else BLUE if match.get("rank") in {2, 3} else 0xFFD9D9D9
         )
-        tx = x + 26 + i * 39
-        d.rect(tx, y + 94, 34, 24, color, 4)
+        tx = x + (w - ranks_width) / 2 + i * (rank_size + rank_gap)
+        d.rect(tx, y + 94, rank_size, rank_size, color, 4)
         d.center(
             match.get("rank"),
             tx,
             y + 111,
-            34,
+            rank_size,
             13,
             WHITE if match.get("rank", 9) <= 3 else MUTED,
             True,
@@ -360,8 +362,12 @@ def _player_match(d, row, x, y, w):
     d.center("RP" if ranked else "KDA", x + 464, y + 69, 132, 12, MUTED)
     d.center(row.get("routeId"), x + 600, y + 46, 82, 15)
     d.center("路径ID", x + 600, y + 69, 82, 12, MUTED)
-    for i, item in enumerate(row.get("equipmentItems", [])[:5]):
-        d.item(item, x + 695 + i % 3 * 47, y + 20 + i // 3 * 32)
+    equipment = row.get("equipmentItems", [])[:5]
+    for start in range(0, len(equipment), 3):
+        equipment_row = equipment[start:start + 3]
+        row_x = x + 695 + (3 - len(equipment_row)) * 47 / 2
+        for i, item in enumerate(equipment_row):
+            d.item(item, row_x + i * 47, y + 20 + start // 3 * 32)
 
 
 def render_character(renderer, payload) -> bytes:
