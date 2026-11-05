@@ -31,8 +31,11 @@ TIERS = {
     "无瑕": "mithril_plus",
     "星陨": "meteorite_plus",
     "修罗": "platinum_plus",
+    "金魄": "gold",
     "黄金": "gold",
+    "银烙": "silver",
     "白银": "silver",
+    "铜魂": "bronze",
     "青铜": "bronze",
     "铁阎": "iron",
     "in1000": "in1000",
@@ -112,11 +115,19 @@ def parse_command(text: str) -> ParsedCommand:
             operation, (tokens[0],), mode=normalize_mode(tokens[1]) if len(tokens) == 2 else "RANK"
         )
     if operation in {"character", "character-equipment"} and 1 <= len(tokens) <= 3:
+        mode, tier = "RANK", "diamond_plus"
+        if len(tokens) == 2:
+            try:
+                mode = normalize_mode(tokens[1])
+            except InvalidQuery:
+                tier = normalize_tier(tokens[1])
+        elif len(tokens) == 3:
+            mode, tier = normalize_mode(tokens[1]), normalize_tier(tokens[2])
         return ParsedCommand(
             operation,
             (tokens[0],),
-            mode=normalize_mode(tokens[1]) if len(tokens) >= 2 else "RANK",
-            tier=normalize_tier(tokens[2]) if len(tokens) == 3 else "diamond_plus",
+            mode=mode,
+            tier=tier,
         )
     if operation == "character-stats" and len(tokens) <= 1:
         return ParsedCommand(

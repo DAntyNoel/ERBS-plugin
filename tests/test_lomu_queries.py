@@ -98,6 +98,9 @@ def test_command_contract(text, operation, arguments, mode, tier, server) -> Non
         "/段位统计 不存在",
         "/角色数据 不存在",
         "/查询角色 艾玛 排位 不存在",
+        "/查询角色 艾玛 不存在",
+        "/查询角色 艾玛 金魄 灭钻",
+        "/查询角色 艾玛 排位 灭钻 in1000",
         '/查询玩家 "a',
     ],
 )
@@ -233,6 +236,40 @@ async def test_character_modes_and_filters_reach_the_real_request() -> None:
     cobalt = next(request for request in seen if request.url.path.endswith("/characters/Emma"))
     assert cobalt.url.params["teamMode"] == "COBALT"
     assert "tier" not in cobalt.url.params
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["/查询角色", "/查询角色装备"])
+@pytest.mark.parametrize(
+    ("tier", "expected"),
+    [
+        ("金魄", "gold"),
+        ("黄金", "gold"),
+        ("灭钻", "diamond_plus"),
+        ("钻石", "diamond_plus"),
+        ("in1000", "in1000"),
+        ("IN1000", "in1000"),
+        ("星陨", "meteorite_plus"),
+        ("无瑕", "mithril_plus"),
+        ("修罗", "platinum_plus"),
+        ("银烙", "silver"),
+        ("铜魂", "bronze"),
+        ("铁阎", "iron"),
+    ],
+)
+async def test_character_tier_without_mode_reaches_request(command, tier, expected) -> None:
+    seen = []
+    async with AsyncERBSClient(
+        ERBSConfig(query_cache_enabled=False), transport=httpx.MockTransport(analysis_handler(seen))
+    ) as client:
+        result = json.loads(await execute_command(f"{command} 艾玛 {tier}", client=client))
+
+    request = next(request for request in seen if request.url.path.endswith("/characters/Emma"))
+    assert request.url.params["matchingMode"] == "RANK"
+    assert request.url.params["teamMode"] == "SQUAD"
+    assert request.url.params["tier"] == expected
+    assert result["footer"]["mode"] == "RANK"
+    assert result["footer"]["tier"] == expected
 
 
 @pytest.mark.asyncio

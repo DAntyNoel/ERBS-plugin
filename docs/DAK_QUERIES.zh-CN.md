@@ -40,7 +40,9 @@ erbs debug character 席琳 --tier diamond_plus
 
 玩家模式支持 `RANK/排位`、`NORMAL/普通`、`COBALT/钴协议`、`ALL/全部`；默认排位。
 角色详情和角色出装支持排位、钴协议，默认排位、`diamond_plus`。
-段位支持灭钻 / 钻石、星陨、无暇 / 无瑕、修罗、黄金、白银、青铜、铁阎、`in1000`，
+模式可省略，直接筛选段位，例如 `/查询角色 席琳 金魄`、`/查询角色 席琳 in1000`、
+`/查询角色装备 艾玛 灭钻`，均默认排位；`/查询角色 席琳 排位 星陨` 写法继续支持。
+段位支持灭钻 / 钻石、星陨、无暇 / 无瑕、修罗、金魄 / 黄金、银烙 / 白银、铜魂 / 青铜、铁阎、`in1000`，
 也可使用 `diamond_plus`、`meteorite_plus`、`mithril_plus` 等对应值。
 
 服务器默认 `seoul`，支持 `asia2`、`asia3`、`ohio`、`frankfurt`、`saopaulo`、`global`；
