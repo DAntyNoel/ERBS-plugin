@@ -107,7 +107,15 @@ class DakQueryMixin:
         )
         latest = next(iter(rows(profile.raw.get("playerSeasons"))), None)
         season_key = season
-        if season is not None:
+        requested = None
+        if season is None:
+            # Ranked profiles may still lead with last season during preseason.
+            # Use DAK's current flag, not the newest ID (which may be a future season).
+            requested = next(
+                (row for row in rows(seasons.get("seasons")) if row.get("isCurrent") is True),
+                None,
+            )
+        else:
             requested = next(
                 (
                     row
@@ -118,6 +126,9 @@ class DakQueryMixin:
             )
             if requested is None or not requested.get("key"):
                 raise InvalidQuery(f"未找到赛季：{season}")
+        if requested is not None:
+            if not requested.get("key") or requested.get("id") is None:
+                raise UpstreamUnavailable("DAK.GG 当前赛季映射不完整")
             season_key = str(requested["key"])
             latest = next(
                 (
@@ -136,7 +147,7 @@ class DakQueryMixin:
                 tier_grade_id=latest.get("tierGradeId"),
                 tier_mmr=latest.get("tierMmr"),
             )
-        # Inactive players must use the season they last played, not today's season.
+        # Older metadata without a current flag can still resolve a played season.
         if season_key is None and profile.season_id is not None:
             latest = next(
                 (row for row in rows(seasons.get("seasons")) if row.get("id") == profile.season_id),

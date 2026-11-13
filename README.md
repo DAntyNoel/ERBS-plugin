@@ -181,6 +181,11 @@ rank/statistics and match-history columns; character cards omit the character se
 the horizontal metrics, skill/tactical columns, augment combinations, and item tables.
 These are local Skia templates using the same structured JSON data, with no browser required.
 
+Player search follows the season marked `isCurrent` by DAK.GG, including preseason, for both
+the ranked sidebar and recent matches. An old ranked profile does not pin history to the previous
+season; missing current-season rank data is shown as unranked. Explicit `season` selection is
+still supported. Metadata without a current flag falls back to the player's latest listed season.
+
 The previous HTML/CSS renderer, theme, fonts and SVG radar geometry are archived in
 [`legacy`](src/erbs_plugin/legacy/README.md). Explicit legacy use requires the `legacy-render`
 extra and `from erbs_plugin.legacy.rendering import HtmlCardRenderer`.

@@ -348,6 +348,51 @@ async def test_player_query_uses_latest_played_season_and_mode_not_today() -> No
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("current_id,current_key", [(42, "PRE_SEASON_22"), (43, "SEASON_22")])
+@pytest.mark.parametrize("has_current_rank", [False, True])
+async def test_player_query_follows_current_season_instead_of_old_rank(
+    current_id, current_key, has_current_rank,
+):
+    seen = []
+    current_rank = {"seasonId": current_id, "mmr": 0, "tierId": 0}
+
+    def handler(request):
+        seen.append(request)
+        data = {
+            "profile": {
+                "player": {"name": "sample"},
+                "playerSeasons": [{"seasonId": 41, "mmr": 9000, "tierId": 66}]
+                + ([current_rank] if has_current_rank else []),
+                "playerSeasonOverviews": [
+                    {"seasonId": 41, "matchingModeId": 3, "teamModeId": 3, "play": 999},
+                    {"seasonId": current_id, "matchingModeId": 3, "teamModeId": 3, "play": 2},
+                ],
+            },
+            "seasons": {"seasons": [
+                {"id": 41, "key": "SEASON_21", "name": "赛季 S12"},
+                {"id": current_id, "key": current_key, "name": "S13", "isCurrent": True},
+                {"id": 45, "key": "SEASON_23", "name": "S14"},
+            ]},
+            "matches": {"matches": [
+                {"gameId": 100, "seasonId": current_id, "matchingMode": 3, "gameRank": 2},
+            ]},
+        }
+        return httpx.Response(200, json=data.get(request.url.path.rsplit("/", 1)[-1], {}))
+
+    async with AsyncERBSClient(transport=httpx.MockTransport(handler)) as client:
+        card = await ERBSService(client).search_player_card("sample", mode="ALL")
+    profile = card.sections[0]["profile"]
+    assert profile["seasonName"] == "S13"
+    assert card.sections[0]["items"][1]["value"] == 2
+    rank = next(s for s in card.sections if s.get("type") == "rank")
+    assert rank["items"][0]["value"] == 0
+    matches = next(s["items"] for s in card.sections if s.get("title") == "最近对局")
+    assert [m["gameId"] for m in matches] == [100]
+    request = next(r for r in seen if r.url.path.endswith("/matches"))
+    assert request.url.params["season"] == current_key
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("mode", "label", "mode_ids"),
     [("ALL", "全部", [3, 2, 6]), ("RANK", "排位", [3]),
@@ -392,7 +437,10 @@ async def test_player_sidebar_stays_ranked_in_selected_season_while_history_filt
                     },
                 ],
             },
-            "seasons": {"seasons": [{"id": 39, "key": "SEASON_11"}]},
+            "seasons": {"seasons": [
+                {"id": 39, "key": "SEASON_11"},
+                {"id": 42, "key": "PRE_SEASON_22", "isCurrent": True},
+            ]},
             "matches": {"matches": [
                 {"gameId": mode_id, "matchingMode": mode_id, "gameRank": 2,
                  "seasonId": 39, "characterNum": 19}
