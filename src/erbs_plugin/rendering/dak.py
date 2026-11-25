@@ -24,6 +24,15 @@ GREEN = 0xFF27A78F
 BLUE = 0xFF3287C4
 RED = 0xFFE36E73
 GOLD = 0xFFD99A00
+_EXPERIMENT_ICONS = {
+    "Material": (0xFFCB5EFF, ((8, 1), (15, 8), (8, 15), (1, 8))),
+    "Energy": (0xFFFFB93B, ((10, 0), (2, 9), (7, 9), (5, 16), (14, 6), (9, 6))),
+    "Biotechnology": (
+        0xFF13B5B1,
+        ((5, 1), (11, 1), (11, 5), (15, 5), (15, 11), (11, 11),
+         (11, 15), (5, 15), (5, 11), (1, 11), (1, 5), (5, 5)),
+    ),
+}
 
 
 def num(value: Any, digits: int = 1, suffix: str = "") -> str:
@@ -36,6 +45,14 @@ def num(value: Any, digits: int = 1, suffix: str = "") -> str:
 def divided(row: Mapping, key: str, total_key: str = "plays", digits: int = 1) -> str:
     value, total = row.get(key), row.get(total_key)
     return num(value / total, digits) if isinstance(value, (int, float)) and total else "—"
+
+
+def experiment_time(experiment: Mapping) -> str:
+    elapsed = experiment.get("firstClearSeconds")
+    if elapsed is None:
+        return "无完成记录"
+    minutes, seconds = divmod(elapsed, 60)
+    return f"首次完成 {minutes}:{seconds:02d}"
 
 
 class Drawing:
@@ -115,6 +132,16 @@ class Drawing:
         self.line(x, y, w)
         for i, line in enumerate(self.r._footer_lines(payload, w)):
             self.text(line, x, y + 25 + 22 * i, 13, MUTED, width=w)
+
+
+def draw_experiment_icon(d, field, x, y):
+    icon = _EXPERIMENT_ICONS.get(field)
+    if icon is None:
+        return
+    color, points = icon
+    path = d.sk.Path()
+    path.addPoly([d.sk.Point(x + dx, y + dy) for dx, dy in points], True)
+    d.c.drawPath(path, d.r._paint(color))
 
 
 def render_player(renderer, payload) -> bytes:
@@ -297,6 +324,17 @@ def _player_match(d, row, x, y, w):
     d.rect(x, y, w, 88, WHITE, 4)
     d.rect(x, y, 6, 88, color, 3)
     d.text(f"#{rank or '—'}", x + 12, y + 21, 15, color, True)
+    experiment = row.get("experiment")
+    if experiment:
+        draw_experiment_icon(d, experiment["type"], x + 45, y + 7)
+        d.center(
+            f"{experiment['name']} · {experiment_time(experiment)}",
+            x + 180,
+            y + 79,
+            390,
+            11,
+            MUTED,
+        )
     d.text(row.get("modeName"), x + 12, y + 39, 11, MUTED)
     try:
         stamp = datetime.fromisoformat(str(row.get("startedAt"))).astimezone(

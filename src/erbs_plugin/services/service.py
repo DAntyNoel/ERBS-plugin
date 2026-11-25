@@ -12,6 +12,7 @@ from ..analysis import ERBSAnalysisService
 from ..client import AsyncERBSClient
 from ..exceptions import ERBSError, InvalidQuery, RateLimited, UpstreamUnavailable
 from ..models import CardPayload, MatchRecord, PlayerProfile
+from ..models.experiment import experiment_summary
 from ..published_summary import SummaryProgressCallback
 from ..radar import RadarDataSource, RadarProfile, RadarSample, RadarScorer, build_radar_section
 from ..radar.scoring import published_profile
@@ -918,6 +919,7 @@ class ERBSService(DakQueryMixin):
             }
             for item_id in match.equipment[:5]
         ]
+        experiment = experiment_summary((match.raw,))
         return {
             "layout": "match",
             "name": f"#{match.rank} · {character_name}",
@@ -938,6 +940,7 @@ class ERBSService(DakQueryMixin):
             "routeId": match.route_id or "Private",
             "equipment": " · ".join(str(item["name"]) for item in equipment_items),
             "equipmentItems": equipment_items,
+            **({"experiment": experiment} if experiment else {}),
         }
 
     @staticmethod

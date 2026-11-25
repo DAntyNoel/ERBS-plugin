@@ -374,7 +374,14 @@ async def test_player_query_follows_current_season_instead_of_old_rank(
                 {"id": 45, "key": "SEASON_23", "name": "S14"},
             ]},
             "matches": {"matches": [
-                {"gameId": 100, "seasonId": current_id, "matchingMode": 3, "gameRank": 2},
+                {
+                    "gameId": 100, "seasonId": current_id, "matchingMode": 3, "gameRank": 2,
+                    "experimentResultType": "Energy",
+                    "questStepClear": [
+                        {"experimentGroupId": 20011, "clearCount": 1,
+                         "firstClearElapsedSeconds": 250.98},
+                    ],
+                },
             ]},
         }
         return httpx.Response(200, json=data.get(request.url.path.rsplit("/", 1)[-1], {}))
@@ -388,6 +395,8 @@ async def test_player_query_follows_current_season_instead_of_old_rank(
     assert rank["items"][0]["value"] == 0
     matches = next(s["items"] for s in card.sections if s.get("title") == "最近对局")
     assert [m["gameId"] for m in matches] == [100]
+    assert matches[0]["experiment"]["name"] == "能源工程"
+    assert matches[0]["experiment"]["firstClearSeconds"] == 250
     request = next(r for r in seen if r.url.path.endswith("/matches"))
     assert request.url.params["season"] == current_key
 

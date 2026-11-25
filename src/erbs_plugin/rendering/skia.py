@@ -18,6 +18,7 @@ from ..config import ERBSConfig
 from ..exceptions import AssetMissing, RenderFailed
 from ..models import CardPayload
 from ..summary_art import select_summary_art
+from .dak import experiment_time
 from .resources import prepare_assets
 
 BG = 0xFFF3F5F8
@@ -599,6 +600,7 @@ class SkiaCardRenderer:
         )
         for position, icon in enumerate(item.get("equipmentItems", [])):
             self._image(canvas, icon.get("imageUrl"), x + 100 + position * 51, y + 85, 46, 40)
+        experiment = item.get("experiment")
         self._label(
             canvas,
             f"Game {_text(item.get('gameId'))}  ·  路线 {_text(item.get('routeId'))}",
@@ -606,8 +608,18 @@ class SkiaCardRenderer:
             y + 146,
             size=14,
             color=MUTED,
-            width=width - 36,
+            width=width - (245 if experiment else 36),
         )
+        if experiment:
+            self._label(
+                canvas,
+                f"{experiment['name']} · {experiment_time(experiment)}",
+                x + width - 220,
+                y + 146,
+                size=14,
+                color=MUTED,
+                width=202,
+            )
         performance = item.get("performance") or {}
         score = performance.get("score")
         if score is not None:

@@ -42,6 +42,9 @@ async def test_player_layout_keeps_ranked_sidebar_and_two_bounded_columns(
                         "matchingMode": 3,
                         "mmrAfter": 4400,
                         "mmrGain": 0,
+                        "experiment": {
+                            "type": "Energy", "name": "能源工程", "firstClearSeconds": 250,
+                        },
                     }
                     for _ in range(count)
                 ],
@@ -68,6 +71,8 @@ async def test_player_layout_keeps_ranked_sidebar_and_two_bounded_columns(
     assert tuple(pixels[340, 45, :3]) == (255, 255, 255)
     assert tuple(pixels[380, 460, :3]) == (255, 255, 255)
     assert tuple(pixels[340, 343, :3]) == (244, 244, 244)
+    if count:
+        assert tuple(pixels[405, 403, :3]) == (255, 185, 59)
     async with SkiaCardRenderer(replace(config, render_scale=0.5)) as renderer:
         half = skia.Image.MakeFromEncoded(await renderer.render(payload))
     assert half.width() == 550
